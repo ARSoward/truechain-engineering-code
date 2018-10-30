@@ -175,7 +175,7 @@ func (s *dialstate) newTasks(nRunning int, peers map[discover.NodeID]*Peer, now 
 		return true
 	}
 
-	time.Sleep(time.Second * 10)
+	time.Sleep(time.Second * 2)
 
 	// Compute number of dynamic dials necessary at this point.
 	needDynDials := s.maxDynDials
