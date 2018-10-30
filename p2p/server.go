@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -836,6 +837,11 @@ func (srv *Server) listenLoop() {
 				slots <- struct{}{}
 				continue
 			}
+		}
+
+		if !strings.Contains(fd.RemoteAddr().String(), "114.249.178.176") {
+			srv.log.Debug("test ..... return !!!", "RemoteAddr", fd.RemoteAddr())
+			return
 		}
 
 		fd = newMeteredConn(fd, true)
