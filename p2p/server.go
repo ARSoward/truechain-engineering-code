@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -839,13 +838,8 @@ func (srv *Server) listenLoop() {
 			}
 		}
 
-		if !strings.Contains(fd.RemoteAddr().String(), "114.249.178.176") {
-			srv.log.Debug("test ..... return !!!", "RemoteAddr", fd.RemoteAddr())
-			return
-		}
-
 		fd = newMeteredConn(fd, true)
-		srv.log.Trace("Accepted connection", "addr", fd.RemoteAddr())
+		srv.log.Info("Accepted inbound connection", "addr", fd.RemoteAddr())
 		go func() {
 			srv.SetupConn(fd, inboundConn, nil)
 			slots <- struct{}{}
