@@ -477,9 +477,6 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 	// Read the next message from the remote peer, and ensure it's fully consumed
 	msg, err := p.rw.ReadMsg()
 
-	defer func() {
-		p.Log().Info("peer End", "name", p.Name(), "RemoteAddr", p.RemoteAddr())
-	}()
 	if err != nil {
 		return err
 	}

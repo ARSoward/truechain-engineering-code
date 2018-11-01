@@ -418,8 +418,8 @@ func (rw *protoRW) ReadMsg() (Msg, error) {
 		msg.Code -= rw.offset
 		return msg, nil
 	case <-rw.closed:
-		log.Info("WriteMsg", "err 222", rw.closed)
-		return Msg{}, io.EOF
+		log.Info("ReadMsg", "err 222", rw.closed)
+		return Msg{}, errors.New("close")
 	}
 }
 

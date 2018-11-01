@@ -839,7 +839,7 @@ func (srv *Server) listenLoop() {
 		}
 
 		fd = newMeteredConn(fd, true)
-		srv.log.Info("Accepted inbound connection", "addr", fd.RemoteAddr())
+		srv.log.Debug("Accepted inbound connection", "addr", fd.RemoteAddr())
 		go func() {
 			srv.SetupConn(fd, inboundConn, nil)
 			slots <- struct{}{}
