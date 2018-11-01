@@ -233,8 +233,9 @@ loop:
 	close(p.closed)
 	log.Info("Peer remove", "LocalAddr", p.LocalAddr(), "reason", reason, "err", err)
 	p.rw.close(reason)
-	log.Info("Peer remove", "RemoteAddr", p.RemoteAddr(), "reason", reason, "err", err, "remoteRequested", remoteRequested, p.Inbound())
+	log.Info("Peer remove", "RemoteAddr", p.RemoteAddr(), "reason", reason, "err", err, "remoteRequested", remoteRequested, "Inbound", p.Inbound())
 	p.wg.Wait()
+	log.Info("Peer remove 333", "RemoteAddr", p.RemoteAddr(), "reason", reason, "err", err, "Inbound", p.Inbound())
 	return remoteRequested, err
 }
 
@@ -246,13 +247,13 @@ func (p *Peer) pingLoop() {
 		select {
 		case <-ping.C:
 			if err := SendItems(p.rw, pingMsg); err != nil {
-				log.Info("pingLoop SendItems", "err", err)
+				p.log.Info("pingLoop SendItems", "err", err)
 				p.protoErr <- err
 				return
 			}
 			ping.Reset(pingInterval)
 		case <-p.closed:
-			log.Info("pingLoop SendItems", "closed", p.closed)
+			p.log.Info("pingLoop SendItems", "closed", p.closed)
 			return
 		}
 	}
@@ -263,13 +264,13 @@ func (p *Peer) readLoop(errc chan<- error) {
 	for {
 		msg, err := p.rw.ReadMsg()
 		if err != nil {
-			log.Info("readLoop ReadMsg", "err", err)
+			p.log.Info("readLoop ReadMsg", "err", err)
 			errc <- err
 			return
 		}
 		msg.ReceivedAt = time.Now()
 		if err = p.handle(msg); err != nil {
-			log.Info("readLoop handle", "err", err)
+			p.log.Info("readLoop handle", "err", err)
 			errc <- err
 			return
 		}

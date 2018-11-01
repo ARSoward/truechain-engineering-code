@@ -638,7 +638,7 @@ running:
 			// This channel is used by RemovePeer to send a
 			// disconnect request to a peer and begin the
 			// stop keeping the node connected.
-			srv.log.Trace("Removing static node", "node", n)
+			srv.log.Info("Removing static node", "node", n)
 			dialstate.removeStatic(n)
 			if p, ok := peers[n.ID]; ok {
 				p.Disconnect(DiscRequested)
