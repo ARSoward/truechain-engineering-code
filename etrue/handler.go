@@ -465,7 +465,7 @@ func (pm *ProtocolManager) handle(p *peer) error {
 	// main loop. handle incoming messages.
 	for {
 		if err := pm.handleMsg(p); err != nil {
-			p.Log().Debug("Truechain message handling failed", "err", err)
+			p.Log().Info("Truechain message handling failed", "err", err)
 			return err
 		}
 	}
@@ -476,9 +476,14 @@ func (pm *ProtocolManager) handle(p *peer) error {
 func (pm *ProtocolManager) handleMsg(p *peer) error {
 	// Read the next message from the remote peer, and ensure it's fully consumed
 	msg, err := p.rw.ReadMsg()
+
+	defer func() {
+		p.Log().Info("peer End", "name", p.Name(), "RemoteAddr", p.RemoteAddr())
+	}()
 	if err != nil {
 		return err
 	}
+	log.Info("Handler", "RemoteAddr", p.RemoteAddr(), "msg code", msg.Code)
 	if msg.Size > ProtocolMaxMsgSize {
 		return errResp(ErrMsgTooLarge, "%v > %v", msg.Size, ProtocolMaxMsgSize)
 	}
@@ -614,7 +619,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		hashMode := query.Origin.Hash != (common.Hash{})
 		first := true
 		maxNonCanonical := uint64(100)
-		log.Debug("GetFastBlockHeadersMsg>>>>>>>>>>>>","query",query)
+		log.Debug("GetFastBlockHeadersMsg>>>>>>>>>>>>", "query", query)
 		// Gather headers until the fetch or network limits is reached
 		var (
 			bytes   common.StorageSize
@@ -1122,7 +1127,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			// scenario should easily be covered by the fetcher.
 			currentBlock := pm.snailchain.CurrentBlock()
 			tdd := pm.snailchain.GetTd(currentBlock.Hash(), currentBlock.NumberU64())
-			log.Debug("SnailBlockMsg>>tdd>>>>","tdd",tdd)
+			log.Debug("SnailBlockMsg>>tdd>>>>", "tdd", tdd)
 			if trueTD.Cmp(pm.snailchain.GetTd(currentBlock.Hash(), currentBlock.NumberU64())) > 0 {
 				// TODO: fix the issue
 				go pm.synchronise(p)
@@ -1132,7 +1137,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 	default:
 		return errResp(ErrInvalidMsgCode, "%v", msg.Code)
 	}
-	log.Debug("Handler", "peer", p.id, "msg code", msg.Code, "time", time.Now().Sub(now))
+	log.Info("Handler", "RemoteAddr", p.RemoteAddr(), "msg code", msg.Code, "time", time.Now().Sub(now))
 	return nil
 }
 

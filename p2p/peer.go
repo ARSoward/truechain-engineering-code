@@ -355,16 +355,16 @@ func (p *Peer) startProtocols(writeStart <-chan struct{}, writeErr chan<- error)
 		if p.events != nil {
 			rw = newMsgEventer(rw, p.events, p.ID(), proto.Name)
 		}
-		p.log.Debug(fmt.Sprintf("Starting protocol %s/%d", proto.Name, proto.Version))
+		p.log.Info(fmt.Sprintf("Starting protocol %s/%d", proto.Name, proto.Version))
 		go func() {
 			err := proto.Run(p, rw)
 			if err == nil {
-				p.log.Debug(fmt.Sprintf("Protocol %s/%d returned", proto.Name, proto.Version))
+				p.log.Info(fmt.Sprintf("Protocol %s/%d returned", proto.Name, proto.Version))
 				err = errProtocolReturned
 			} else if err != io.EOF {
-				p.log.Debug(fmt.Sprintf("Protocol %s/%d failed", proto.Name, proto.Version), "err", err)
+				p.log.Info(fmt.Sprintf("Protocol %s/%d failed", proto.Name, proto.Version), "err", err)
 			}
-			log.Info("startProtocols", "err", err)
+			p.log.Info("startProtocols", "err", err)
 			p.protoErr <- err
 			p.wg.Done()
 		}()
@@ -406,6 +406,7 @@ func (rw *protoRW) WriteMsg(msg Msg) (err error) {
 		// as well but we don't want to rely on that.
 		rw.werr <- err
 	case <-rw.closed:
+		log.Info("WriteMsg", "err 11", rw.closed)
 		err = ErrShuttingDown
 	}
 	return err
@@ -417,6 +418,7 @@ func (rw *protoRW) ReadMsg() (Msg, error) {
 		msg.Code -= rw.offset
 		return msg, nil
 	case <-rw.closed:
+		log.Info("WriteMsg", "err 222", rw.closed)
 		return Msg{}, io.EOF
 	}
 }
