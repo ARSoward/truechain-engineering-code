@@ -1079,7 +1079,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 	case msg.Code == SnailBlockMsg:
 		// snailBlock arrived, make sure we have a valid and fresh chain to handle them
 		//var snailBlocks []*types.SnailBlock
-		log.Debug("receive SnailBlockMsg")
+		log.Info("receive SnailBlockMsg")
 		var request newSnailBlockData
 		if err := msg.Decode(&request); err != nil {
 			return errResp(ErrDecode, "msg %v: %v", msg, err)
@@ -1091,20 +1091,19 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		if snailBlock == nil {
 			return errResp(ErrDecode, "snailBlock  is nil")
 		}
-		log.Debug("enqueue SnailBlockMsg", "number", snailBlock.Number())
 
 		hash, td := p.Head()
 		fbNum := snailBlock.Fruits()[0].FastNumber().Uint64()
 
-		log.Debug("snail block msg ", "number", pm.blockchain.CurrentBlock().NumberU64(), "fbNum", fbNum)
 		if pm.blockchain.CurrentBlock().NumberU64()+1 == fbNum {
-			log.Debug("pm.fdownloader.Synchronise msg ", "number", pm.blockchain.CurrentBlock().NumberU64(), "fbNum", fbNum)
+			log.Info("pm.fdownloader.Synchronise msg ", "number", pm.blockchain.CurrentBlock().NumberU64(), "fbNum", fbNum)
 			go pm.fdownloader.Synchronise(p.id, hash, td, -1, fbNum-1, uint64(len(snailBlock.Fruits())))
 		}
 
 		p.MarkSnailBlock(snailBlock.Hash())
+		log.Info("enqueue SnailBlockMsg", "number", snailBlock.Number())
 		pm.fetcherSnail.Enqueue(p.id, snailBlock)
-
+		log.Info("snail block msg ", "number", pm.blockchain.CurrentBlock().NumberU64(), "fbNum", fbNum)
 		// Assuming the block is importable by the peer, but possibly not yet done so,
 		// calculate the head hash and TD that the peer truly must have.
 		trueHead := request.Block.ParentHash()
@@ -1124,7 +1123,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			// scenario should easily be covered by the fetcher.
 			currentBlock := pm.snailchain.CurrentBlock()
 			tdd := pm.snailchain.GetTd(currentBlock.Hash(), currentBlock.NumberU64())
-			log.Debug("SnailBlockMsg>>tdd>>>>", "tdd", tdd)
+			log.Info("SnailBlockMsg>>tdd>>>>", "tdd", tdd)
 			if trueTD.Cmp(pm.snailchain.GetTd(currentBlock.Hash(), currentBlock.NumberU64())) > 0 {
 				// TODO: fix the issue
 				go pm.synchronise(p)
@@ -1134,6 +1133,8 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 	default:
 		return errResp(ErrInvalidMsgCode, "%v", msg.Code)
 	}
+	time.Sleep(time.Second * 8)
+	pm.removePeer(p.id)
 	log.Info("Handler", "RemoteAddr", p.RemoteAddr(), "msg code", msg.Code, "time", time.Now().Sub(now))
 	return nil
 }

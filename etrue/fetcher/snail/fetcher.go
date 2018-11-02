@@ -194,13 +194,14 @@ func (f *Fetcher) loop() {
 						finished = true
 						break
 					}
+					log.Info("insert SnailBlockMsg", "number", block.Number(), "height", height)
 					// Otherwise if fresh and still unknown, try and import
 					if number+maxUncleDist < height || f.getBlock(hash) != nil {
 						f.forgetBlock(hash)
 						continue
 					}
 					f.verifyBlockBroadcast(peer, block, true)
-					log.Debug("insert SnailBlockMsg", "number", block.Number())
+					log.Info("insert SnailBlockMsg", "number", block.Number(), "len(blocks)", len(blocks))
 					if _, err := f.insertChain(types.SnailBlocks{block}); err != nil {
 						log.Warn("Propagated block import failed", "peer", peer, "number", block.Number(), "hash", hash, "err", err)
 						f.done <- hash
