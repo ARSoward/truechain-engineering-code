@@ -228,7 +228,7 @@ func DefaultGenesisBlock() *Genesis {
 		Nonce:      66,
 		ExtraData:  nil,
 		GasLimit:   88080384,
-		Difficulty: big.NewInt(1000000),
+		Difficulty: big.NewInt(100000),
 		//Alloc:      decodePrealloc(mainnetAllocData),
 		Alloc: map[common.Address]types.GenesisAccount{
 			common.HexToAddress("0x7c357530174275dd30e46319b89f71186256e4f7"): {Balance: i},
@@ -258,7 +258,7 @@ func DefaultTestnetGenesisBlock() *Genesis {
 	seedkey2, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x04e444bc40b6d1372a955fb9bb9a986ceb1c13a450794151fbf48033189351f6bddddcbebfa5c6d205887551e9527e6deff2cbee9f233ffe14fd15db4beb9c9f34"))
 	seedkey3, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x049620df839696f4451842fd543b38d171f7f215dcd2c7fcd813c0206f097206a67b25ad719fbb62570c4a4ba467ec61aa396788e3ae79c704a62ea759beca3175"))
 	seedkey4, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x04f714bb815a9ecc505eae7e756b63753850df92a0fe4c99dc8b6660ba17bbcbb88000d9efb524eb38746ef4505ad2ab1895efccbcc966d4c685c811bda7c9d8ef"))
-	
+
 	seedkey5, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x04574194462132a05d45923f322f13bfa12dbe2e536c3743915ef16d412353d7e060a835cded6f9883efc1ce1feec99c04c930e7561741b0da5286185328edeff5"))
 	seedkey6, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x04a49218f37e7640a7809f7f2b7213c0db128ace84288a23cf6ed00e2e26fa83d9c3f7ae1dfad2f4d9b28fc4ab846c32751f53a8614d253d96e217725e8ef80f68"))
 	seedkey7, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x04c9194f5bf60f9d51ecccc869df245ccaa313e40343625a9368d8bc284e17e034dcaa592355968bfc26dc086c9574fcf81e4f7009d70ebd8a217ead24b5a3edc6"))
@@ -287,12 +287,12 @@ func DefaultTestnetGenesisBlock() *Genesis {
 		Nonce:      66,
 		ExtraData:  nil,
 		GasLimit:   20971520,
-		Timestamp:	1537891200,
+		Timestamp:  1537891200,
 		Difficulty: big.NewInt(6000000),
-		Coinbase: 	common.HexToAddress("0x0000000000000000000000000000000000000000"),
-		Mixhash: 	common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
+		Coinbase:   common.HexToAddress("0x0000000000000000000000000000000000000000"),
+		Mixhash:    common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
 		ParentHash: common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
-		Alloc: map[common.Address]types.GenesisAccount{
+		Alloc:      map[common.Address]types.GenesisAccount{
 			// common.HexToAddress("0x7c357530174275dd30e46319b89f71186256e4f7"): {Balance: amount},
 			// common.HexToAddress("0x4cf807958b9f6d9fd9331397d7a89a079ef43288"): {Balance: amount},
 		},
