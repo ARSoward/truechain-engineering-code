@@ -1133,8 +1133,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 	default:
 		return errResp(ErrInvalidMsgCode, "%v", msg.Code)
 	}
-	time.Sleep(time.Second * 8)
-	pm.removePeer(p.id)
+
 	log.Info("Handler", "RemoteAddr", p.RemoteAddr(), "msg code", msg.Code, "time", time.Now().Sub(now))
 	return nil
 }
