@@ -177,7 +177,7 @@ func newPeer(conn *conn, protocols []Protocol) *Peer {
 		disc:     make(chan DiscReason),
 		protoErr: make(chan error, len(protomap)+1), // protocols + pingLoop
 		closed:   make(chan struct{}),
-		log:      log.New("id", conn.id, "conn", conn.flags, "local", conn.fd.LocalAddr(), "remote", conn.fd.RemoteAddr()),
+		log:      log.New("id", conn.id, "conn", conn.flags),
 	}
 	return p
 }
@@ -231,11 +231,8 @@ loop:
 	}
 
 	close(p.closed)
-	log.Info("Peer remove", "LocalAddr", p.LocalAddr(), "reason", reason, "err", err)
 	p.rw.close(reason)
-	log.Info("Peer remove", "RemoteAddr", p.RemoteAddr(), "reason", reason, "err", err, "remoteRequested", remoteRequested, "Inbound", p.Inbound())
 	p.wg.Wait()
-	log.Info("Peer remove 333", "RemoteAddr", p.RemoteAddr(), "reason", reason, "err", err, "Inbound", p.Inbound())
 	return remoteRequested, err
 }
 
@@ -247,13 +244,11 @@ func (p *Peer) pingLoop() {
 		select {
 		case <-ping.C:
 			if err := SendItems(p.rw, pingMsg); err != nil {
-				p.log.Info("pingLoop SendItems", "err", err)
 				p.protoErr <- err
 				return
 			}
 			ping.Reset(pingInterval)
 		case <-p.closed:
-			p.log.Info("pingLoop SendItems", "closed", p.closed)
 			return
 		}
 	}
@@ -264,13 +259,11 @@ func (p *Peer) readLoop(errc chan<- error) {
 	for {
 		msg, err := p.rw.ReadMsg()
 		if err != nil {
-			p.log.Info("readLoop ReadMsg", "err", err)
 			errc <- err
 			return
 		}
 		msg.ReceivedAt = time.Now()
 		if err = p.handle(msg); err != nil {
-			p.log.Info("readLoop handle", "err", err)
 			errc <- err
 			return
 		}
@@ -355,16 +348,15 @@ func (p *Peer) startProtocols(writeStart <-chan struct{}, writeErr chan<- error)
 		if p.events != nil {
 			rw = newMsgEventer(rw, p.events, p.ID(), proto.Name)
 		}
-		p.log.Info(fmt.Sprintf("Starting protocol %s/%d", proto.Name, proto.Version))
+		p.log.Trace(fmt.Sprintf("Starting protocol %s/%d", proto.Name, proto.Version))
 		go func() {
 			err := proto.Run(p, rw)
 			if err == nil {
-				p.log.Info(fmt.Sprintf("Protocol %s/%d returned", proto.Name, proto.Version))
+				p.log.Trace(fmt.Sprintf("Protocol %s/%d returned", proto.Name, proto.Version))
 				err = errProtocolReturned
 			} else if err != io.EOF {
-				p.log.Info(fmt.Sprintf("Protocol %s/%d failed", proto.Name, proto.Version), "err", err)
+				p.log.Trace(fmt.Sprintf("Protocol %s/%d failed", proto.Name, proto.Version), "err", err)
 			}
-			p.log.Info("startProtocols", "err", err)
 			p.protoErr <- err
 			p.wg.Done()
 		}()
@@ -406,7 +398,6 @@ func (rw *protoRW) WriteMsg(msg Msg) (err error) {
 		// as well but we don't want to rely on that.
 		rw.werr <- err
 	case <-rw.closed:
-		log.Info("WriteMsg", "err 11", rw.closed)
 		err = ErrShuttingDown
 	}
 	return err
@@ -418,8 +409,7 @@ func (rw *protoRW) ReadMsg() (Msg, error) {
 		msg.Code -= rw.offset
 		return msg, nil
 	case <-rw.closed:
-		log.Info("ReadMsg", "err 222", rw.closed)
-		return Msg{}, errors.New("close")
+		return Msg{}, io.EOF
 	}
 }
 

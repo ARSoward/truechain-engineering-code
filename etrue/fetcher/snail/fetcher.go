@@ -204,7 +204,8 @@ func (f *Fetcher) loop() {
 					log.Info("insert SnailBlockMsg", "number", block.Number(), "len(blocks)", len(blocks))
 					if _, err := f.insertChain(types.SnailBlocks{block}); err != nil {
 						log.Warn("Propagated block import failed", "peer", peer, "number", block.Number(), "hash", hash, "err", err)
-						f.done <- hash
+						finished = true
+						f.forgetBlock(hash)
 						break
 					}
 					f.verifyBlockBroadcast(peer, block, false)
