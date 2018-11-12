@@ -482,7 +482,6 @@ func (f *Fetcher) loop() {
 
 		case notification := <-f.notify:
 			// A block was announced, make sure the peer isn't DOSing us
-			f.blockMutex.Lock()
 			propAnnounceInMeter.Mark(1)
 
 			count := f.announces[notification.origin] + 1
@@ -515,7 +514,6 @@ func (f *Fetcher) loop() {
 			if len(f.announced) == 1 {
 				f.rescheduleFetch(fetchTimer)
 			}
-			f.blockMutex.Unlock()
 
 		case op := <-f.inject:
 			// A direct block insertion was requested, try and fill any pending gaps
@@ -884,9 +882,7 @@ func (f *Fetcher) enqueue(peer string, block *types.Block) {
 			block:  block,
 		}
 		f.queues[peer] = count
-		f.blockMutex.Lock()
-		f.queued[hash] = op
-		f.blockMutex.Unlock()
+		f.setPendingBlock(hash, op)
 
 		opMulti := &injectMulti{}
 		f.blockMultiHash[number] = append(f.blockMultiHash[number], hash)
@@ -1011,6 +1007,14 @@ func (f *Fetcher) getPendingBlock(hash common.Hash) *inject {
 		return nil
 	} else {
 		return f.queued[hash]
+	}
+}
+
+func (f *Fetcher) setPendingBlock(hash common.Hash, op *inject) {
+	f.blockMutex.Lock()
+	defer f.blockMutex.Unlock()
+	if _, ok := f.queued[hash]; !ok {
+		f.queued[hash] = op
 	}
 }
 
