@@ -56,11 +56,9 @@ const (
 )
 
 var (
-	tpsMetrics = metrics.NewMeter()
-	tpsMeter   = metrics.Register("etrue/pbftAgent/tps", tpsMetrics)
-
-	pbftConsensusMetrics = metrics.NewTimer()
-	pbftConsensusTimer   = metrics.Register("etrue/pbftAgent/pbftConsensus", pbftConsensusMetrics)
+	tpsMetrics =metrics.NewRegisteredMeter("etrue/pbftAgent/tps", nil)
+	//pbftConsensusMetrics =metrics.NewRegisteredTimer("etrue/pbftAgent/pbftConsensus", nil)
+	pbftConsensusCounter   = metrics.NewRegisteredCounter("etrue/pbftAgent/pbftConsensus", nil)
 )
 
 var (
@@ -93,7 +91,7 @@ type PbftAgent struct {
 	endFastNumber        map[*big.Int]*big.Int
 
 	server   types.PbftServerProxy
-	election *Election
+	election *core.Election
 
 	mu           *sync.Mutex //generateBlock mutex
 	cacheBlockMu *sync.Mutex //PbftAgent.cacheBlock mutex
@@ -138,7 +136,7 @@ type AgentWork struct {
 }
 
 // NodeInfoEvent is posted when nodeInfo send
-func NewPbftAgent(eth Backend, config *params.ChainConfig, engine consensus.Engine, election *Election, coinbase common.Address) *PbftAgent {
+func NewPbftAgent(eth Backend, config *params.ChainConfig, engine consensus.Engine, election *core.Election, coinbase common.Address) *PbftAgent {
 	self := &PbftAgent{
 		config:               config,
 		engine:               engine,
@@ -179,7 +177,7 @@ func (self *PbftAgent) initNodeInfo(config *Config, coinbase common.Address) {
 	}
 	//if singlenode start, node as committeeMember
 	if self.singleNode {
-		committees := self.election.genesisCommittee
+		committees := self.election.GetGenesisCommittee()
 		if len(committees) != 1 {
 			log.Error("singlenode start,must assign genesis_single.json")
 		}
@@ -715,12 +713,16 @@ func (self *PbftAgent) FetchFastBlock(committeeId *big.Int) (*types.Block, error
 
 //validate space between latest fruit number of snailchain  and  lastest fastBlock number
 func (self *PbftAgent) validateBlockSpace(header *types.Header) error {
+	if self.singleNode{
+		return nil
+	}
 	snailBlock := self.snailChain.CurrentBlock()
 	blockFruits := snailBlock.Body().Fruits
 	if blockFruits != nil && len(blockFruits) > 0 {
 		lastFruitNum := blockFruits[len(blockFruits)-1].FastNumber()
 		space := new(big.Int).Sub(header.Number, lastFruitNum).Int64()
 		if space >= params.FastToFruitSpace.Int64() {
+			log.Warn("fetchFastBlock validateBlockSpace error","space",space)
 			return types.ErrSnailBlockTooSlow
 		}
 	}
@@ -902,6 +904,10 @@ func (self *PbftAgent) BroadcastConsensus(fb *types.Block) error {
 	if err != nil {
 		return err
 	}
+	//record consensus time  of committee
+	consensusTime :=time.Now().Unix() -fb.Header().Time.Int64()
+	pbftConsensusCounter.Clear()
+	pbftConsensusCounter.Inc(consensusTime)
 	log.Debug("out BroadcastSign.", "fastHeight", fb.Number())
 	return nil
 }
