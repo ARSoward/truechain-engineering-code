@@ -18,7 +18,7 @@ import (
 type Node struct {
 	NodeID             string
 	NodeTable          map[string]string // key=nodeID, value=url
-	NTLock             sync.Mutex
+	NTLock             sync.RWMutex
 	View               *View
 	States             map[int64]*consensus.State
 	CommittedMsgs      []*consensus.RequestMsg // kinda block.
@@ -37,7 +37,7 @@ type Node struct {
 	CommitLock         sync.Mutex
 	CurrentHeight      int64
 	RetryPrePrepareMsg map[int64]*consensus.PrePrepareMsg
-	//stop               bool
+	Stop               bool
 }
 
 type MsgBuffer struct {
@@ -45,15 +45,6 @@ type MsgBuffer struct {
 	PrePrepareMsgs []*consensus.PrePrepareMsg
 	PrepareMsgs    []*consensus.VoteMsg
 	CommitMsgs     []*consensus.VoteMsg
-}
-
-func (msg *MsgBuffer) Clear() {
-	msg = &MsgBuffer{
-		ReqMsgs:        make([]*consensus.RequestMsg, 0),
-		PrePrepareMsgs: make([]*consensus.PrePrepareMsg, 0),
-		PrepareMsgs:    make([]*consensus.VoteMsg, 0),
-		CommitMsgs:     make([]*consensus.VoteMsg, 0),
-	}
 }
 
 type View struct {
@@ -133,8 +124,8 @@ func NewNode(nodeID string, verify consensus.ConsensusVerify, finish consensus.C
 }
 
 func (node *Node) Broadcast(msg interface{}, path string) map[string]error {
-	node.NTLock.Lock()
-	defer node.NTLock.Unlock()
+	node.NTLock.RLock()
+	defer node.NTLock.RUnlock()
 	errorMap := make(map[string]error)
 	for nodeID, url := range node.NodeTable {
 		if nodeID == node.NodeID {
@@ -163,8 +154,8 @@ func (node *Node) Broadcast(msg interface{}, path string) map[string]error {
 }
 
 func (node *Node) BroadcastOne(msg interface{}, path string, node_id string) (err error) {
-	node.NTLock.Lock()
-	defer node.NTLock.Unlock()
+	node.NTLock.RLock()
+	defer node.NTLock.RUnlock()
 	for nodeID, url := range node.NodeTable {
 		if nodeID != node_id {
 			continue
@@ -185,29 +176,34 @@ func (node *Node) BroadcastOne(msg interface{}, path string, node_id string) (er
 }
 
 func (node *Node) ClearStatus(height int64) {
-	dHeight := height % StateMax
-	dHeight = dHeight - StateClear
-	if dHeight < 0 {
-		dHeight += StateMax
+	dHeight := height - StateClear
+	if dHeight >= 0 {
+		delete(node.States, dHeight)
 	}
-	delete(node.States, dHeight)
 }
 
 func (node *Node) PutStatus(height int64, state *consensus.State) {
 	node.CurrentHeight = height
 	node.lock.Lock()
 	defer node.lock.Unlock()
-	id := height % StateMax
-	node.States[id] = state
+	node.States[height] = state
 	node.ClearStatus(height)
-	//fmt.Println("[status]", "put", id)
+}
+
+func (node *Node) UpdateStatus(msg *consensus.RequestMsg) {
+	node.lock.Lock()
+	defer node.lock.Unlock()
+
+	if state, ok := node.States[msg.Height]; ok {
+		state.MsgLogs.ReqMsg = msg
+
+	}
 }
 
 func (node *Node) GetStatus(height int64) *consensus.State {
 	node.lock.Lock()
 	defer node.lock.Unlock()
-	id := height % StateMax
-	if state, ok := node.States[id]; ok {
+	if state, ok := node.States[height]; ok {
 		return state
 	}
 	return nil
@@ -336,9 +332,9 @@ func (node *Node) GetPrepare(prepareMsg *consensus.VoteMsg) error {
 	node.PrePareLock.Lock()
 	defer node.PrePareLock.Unlock()
 	lock.PSLog("node GetPrepare", prepareMsg.Height)
-	node.NTLock.Lock()
+	node.NTLock.RLock()
 	f := float64(len(node.NodeTable)) / 3
-	node.NTLock.Unlock()
+	node.NTLock.RUnlock()
 	CurrentState := node.GetStatus(prepareMsg.Height)
 
 	if CurrentState == nil ||
@@ -397,9 +393,9 @@ func (node *Node) GetPrepare(prepareMsg *consensus.VoteMsg) error {
 
 func (node *Node) processCommitWaitMessageQueue() {
 	for {
-		//if node.Stop {
-		//	return
-		//}
+		if node.Stop {
+			return
+		}
 		var msgSend = make([]*consensus.VoteMsg, 0)
 		if !node.CommitWaitQueue.Empty() {
 			msg := node.CommitWaitQueue.PopItem().(*consensus.VoteMsg)
@@ -439,9 +435,9 @@ func (node *Node) GetCommit(commitMsg *consensus.VoteMsg) error {
 	node.CommitLock.Lock()
 	defer node.CommitLock.Unlock()
 	//lock.PSLog("node GetCommit in", fmt.Sprintf("%+v", commitMsg))
-	node.NTLock.Lock()
+	node.NTLock.RLock()
 	f := float64(len(node.NodeTable)) / 3
-	node.NTLock.Unlock()
+	node.NTLock.RUnlock()
 	state := node.GetStatus(commitMsg.Height)
 	if state == nil {
 		return nil
@@ -511,6 +507,9 @@ func (node *Node) createStateForNewConsensus(height int64) error {
 
 func (node *Node) dispatchMsg() {
 	for {
+		if node.Stop {
+			return
+		}
 		select {
 		case msg := <-node.MsgEntrance:
 
@@ -543,8 +542,8 @@ func (node *Node) routeMsg(msg interface{}) []error {
 		lock.PSLog("node routeMsg", msg.(*consensus.RequestMsg).Height)
 		CurrentStage := node.GetStatus(msg.(*consensus.RequestMsg).Height)
 		if CurrentStage != nil {
+			//update
 			lock.PSLogInfo("clear stage ", msg.(*consensus.RequestMsg).Height)
-			node.MsgBuffer.Clear()
 			node.PutStatus(msg.(*consensus.RequestMsg).Height, nil)
 			CurrentStage = nil
 		}
@@ -568,10 +567,7 @@ func (node *Node) routeMsg(msg interface{}) []error {
 		lock.PSLog("node routeMsg", msg.(*consensus.PrePrepareMsg).Height)
 		CurrentStage := node.GetStatus(msg.(*consensus.PrePrepareMsg).Height)
 		if CurrentStage != nil {
-			lock.PSLogInfo("clear stage ", msg.(*consensus.PrePrepareMsg).Height)
-			node.MsgBuffer.Clear()
-			node.PutStatus(msg.(*consensus.PrePrepareMsg).Height, nil)
-			CurrentStage = nil
+			CurrentStage.CurrentStage = consensus.Idle
 		}
 
 		if CurrentStage == nil || (CurrentStage.CurrentStage == consensus.Idle) {
@@ -636,9 +632,9 @@ func (node *Node) routeMsg(msg interface{}) []error {
 
 func (node *Node) dispatchMsgBackward() {
 	for {
-		//if node.Stop {
-		//	return
-		//}
+		if node.Stop {
+			return
+		}
 		select {
 		case msg := <-node.MsgBackward:
 			err := node.routeMsgBackward(msg)
@@ -814,10 +810,9 @@ func (node *Node) routeMsgWhenAlarmed() []error {
 
 func (node *Node) resolveMsg() {
 	for {
-		// Get buffered messages from the dispatcher.
-		//if node.Stop {
-		//	return
-		//}
+		if node.Stop {
+			return
+		}
 		msgs := <-node.MsgDelivery
 		switch msgs.(type) {
 		case []*consensus.RequestMsg:
@@ -865,9 +860,9 @@ func (node *Node) resolveMsg() {
 
 func (node *Node) alarmToDispatcher() {
 	for {
-		//if node.Stop {
-		//	return
-		//}
+		if node.Stop {
+			return
+		}
 		time.Sleep(ResolvingTimeDuration)
 		node.Alarm <- true
 	}

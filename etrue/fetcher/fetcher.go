@@ -183,7 +183,7 @@ type Fetcher struct {
 	queuesSign     map[string]int                    // Per peer sign counts to prevent memory exhaustion
 	queuedSign     map[common.Hash]*injectSingleSign // Set of already sign blocks (to dedupe imports)
 	signMultiHash  map[uint64][]common.Hash          //solve same height more sign question
-	blockConsensus map[uint64]bool                   // Per peer sign counts to prevent many times insert block
+	blockConsensus map[uint64][]common.Hash          // Per peer sign counts to prevent many times insert block
 	enterQueue     bool
 
 	// Callbacks
@@ -237,7 +237,7 @@ func New(getBlock blockRetrievalFn, verifyHeader headerVerifierFn, broadcastFast
 		blockMultiHash:     make(map[uint64][]common.Hash),
 		sendBlockHash:      make(map[uint64][]common.Hash),
 		signMultiHash:      make(map[uint64][]common.Hash),
-		blockConsensus:     make(map[uint64]bool),
+		blockConsensus:     make(map[uint64][]common.Hash),
 		enterQueue:         true,
 		agentFetcher:       agentFetcher,
 		broadcastSigns:     broadcastSigns,
@@ -423,7 +423,7 @@ func (f *Fetcher) loop() {
 						break
 					} else {
 						f.markBroadcastBlock(number, peer, block)
-						if _, ok := f.blockConsensus[number]; ok {
+						if len(f.blockConsensus[number]) > 0 {
 							signHashs := f.signMultiHash[number]
 							log.Debug("Loop", "number", number, "same block", len(blocks), "height", height, "sign count", len(signHashs))
 							if signInject, ok := f.queuedSign[signHashs[0]]; ok {
@@ -451,7 +451,7 @@ func (f *Fetcher) loop() {
 
 						if !finished {
 
-							signHashs := f.signMultiHash[number]
+							signHashs := f.blockConsensus[number]
 							signs := []*types.PbftSign{}
 							for _, signHash := range signHashs {
 								if sign, ok := f.queuedSign[signHash]; ok {
@@ -806,7 +806,7 @@ func (f *Fetcher) enqueueSign(peer string, signs []*types.PbftSign) {
 		find := false
 		for _, sign := range verifySigns {
 
-			if _, ok := f.blockConsensus[number]; !ok {
+			if len(f.blockConsensus[number]) > 0 {
 				// Schedule the sign for future importing
 				if _, ok := f.queuedSign[sign.Hash()]; !ok {
 					op := &injectSingleSign{
@@ -834,10 +834,10 @@ func (f *Fetcher) enqueueSign(peer string, signs []*types.PbftSign) {
 		committeeNumber := f.agentFetcher.GetCommitteeNumber(signs[0].FastHeight)
 		log.Debug("Consensus estimates", "num", signs[0].FastHeight, "committee number", committeeNumber, "sign length", len(f.signMultiHash[number]), "peer", peer)
 		if verifyCommitteesReachedTwoThirds(committeeNumber, int32(len(f.signMultiHash[number]))) {
-			if ok, _ := f.agreeAtSameHeight(number, verifySigns[0].FastHash, committeeNumber); ok {
+			if ok, signHashs := f.agreeAtSameHeight(number, verifySigns[0].FastHash, committeeNumber); ok {
 				propSignInMeter.Mark(1)
 				f.enterQueue = true
-				f.blockConsensus[number] = true
+				f.blockConsensus[number] = signHashs
 				log.Debug("Queued propagated sign", "peer", peer, "number", number, "sign length", len(f.signMultiHash[number]), "hash", hash)
 			}
 		}

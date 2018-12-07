@@ -87,10 +87,18 @@ func (m *Minerva) VerifyHeader(chain consensus.ChainReader, header *types.Header
 		return nil
 	}
 
+	if chain.GetHeaderByNumber(number) != nil {
+		return consensus.ErrForkFastBlock
+	}
+
 	return m.verifyHeader(chain, header, parent)
 }
 
 func (m *Minerva) getParents(chain consensus.SnailChainReader, header *types.SnailHeader) []*types.SnailHeader {
+	return GetParents(chain, header)
+}
+
+func GetParents(chain consensus.SnailChainReader, header *types.SnailHeader) []*types.SnailHeader {
 	number := header.Number.Uint64()
 	period := params.DifficultyPeriod.Uint64()
 	if number < period {
