@@ -69,9 +69,9 @@ func (self *StateDB) RawDump() DumpSize {
 			storage = len(storageIt.Key) + len(storageIt.Value)
 		}
 		sum = sum + storage
-		log.Info("i", i, "storage", storage, "sum", sum)
+		log.Info("RawDump", "i", i, "storage", storage, "sum", sum)
 	}
-	log.Info("i", i, "sum", sum, "sumB", sum/1024, "sumM", sum/1024/1024)
+	log.Info("RawDump", "i", i, "sum", sum, "sumB", sum/1024, "sumM", sum/1024/1024)
 	return DumpSize{count: strconv.Itoa(i), size: strconv.Itoa(sum), sizeByte: strconv.Itoa(sum / 1024), sizeM: strconv.Itoa((sum / 1024) / 1024)}
 }
 
