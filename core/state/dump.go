@@ -19,6 +19,8 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -39,36 +41,35 @@ type Dump struct {
 	Accounts map[string]DumpAccount `json:"accounts"`
 }
 
-func (self *StateDB) RawDump() Dump {
-	dump := Dump{
-		Root:     fmt.Sprintf("%x", self.trie.Hash()),
-		Accounts: make(map[string]DumpAccount),
-	}
+type DumpSize struct {
+	count    string `json:"count"`
+	size     string `json:"size"`
+	sizeByte string `json:"sizeByte"`
+	sizeM    string `json:"sizeM"`
+}
 
+func (self *StateDB) RawDump() DumpSize {
 	it := trie.NewIterator(self.trie.NodeIterator(nil))
+	i := 0
+	sum := 0
 	for it.Next() {
+		i++
 		addr := self.trie.GetKey(it.Key)
+		log.Info("RawDump", "it.Key", len(it.Key), "addr", len(addr), "it.Value", len(it.Value), "i", i)
+		sum = len(it.Key) + len(it.Value)
 		var data Account
 		if err := rlp.DecodeBytes(it.Value, &data); err != nil {
 			panic(err)
 		}
 
 		obj := newObject(nil, common.BytesToAddress(addr), data)
-		account := DumpAccount{
-			Balance:  data.Balance.String(),
-			Nonce:    data.Nonce,
-			Root:     common.Bytes2Hex(data.Root[:]),
-			CodeHash: common.Bytes2Hex(data.CodeHash),
-			Code:     common.Bytes2Hex(obj.Code(self.db)),
-			Storage:  make(map[string]string),
-		}
 		storageIt := trie.NewIterator(obj.getTrie(self.db).NodeIterator(nil))
 		for storageIt.Next() {
-			account.Storage[common.Bytes2Hex(self.trie.GetKey(storageIt.Key))] = common.Bytes2Hex(storageIt.Value)
+			log.Info("RawDump", "storageIt.Key", len(storageIt.Key), "it.Value", len(storageIt.Value), "i", i)
+			sum = len(storageIt.Key) + len(storageIt.Value)
 		}
-		dump.Accounts[common.Bytes2Hex(addr)] = account
 	}
-	return dump
+	return DumpSize{count: strconv.Itoa(i), size: strconv.Itoa(sum), sizeByte: strconv.Itoa(sum / 1024), sizeM: strconv.Itoa((sum / 1024) / 1024)}
 }
 
 func (self *StateDB) Dump() []byte {
