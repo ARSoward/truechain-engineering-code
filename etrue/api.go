@@ -28,15 +28,15 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/truechain/truechain-engineering-code/core"
 	"github.com/truechain/truechain-engineering-code/core/rawdb"
 	"github.com/truechain/truechain-engineering-code/core/state"
 	"github.com/truechain/truechain-engineering-code/core/types"
 	"github.com/truechain/truechain-engineering-code/internal/trueapi"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/truechain/truechain-engineering-code/miner"
 	"github.com/truechain/truechain-engineering-code/params"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/truechain/truechain-engineering-code/rpc"
 	"github.com/truechain/truechain-engineering-code/trie"
 )
@@ -62,11 +62,11 @@ func (api *PublicTruechainAPI) Coinbase() (common.Address, error) {
 	return api.Etherbase()
 }
 
-func (api *PublicTruechainAPI) CommitteeNumber() uint64{
+func (api *PublicTruechainAPI) CommitteeNumber() uint64 {
 	return api.e.agent.CommitteeNumber()
 }
 
-func (api *PublicTruechainAPI) GetCurrentState() map[string]interface{}{
+func (api *PublicTruechainAPI) GetCurrentState() map[string]interface{} {
 	return api.e.agent.GetCommitteeStatus()
 }
 
@@ -190,11 +190,11 @@ func (api *PrivateMinerAPI) SetExtra(extra string) (bool, error) {
 
 // SetElection sets the election .
 func (api *PrivateMinerAPI) SetElection(toElect bool, pubkey []byte) (bool, error) {
-	if len(pubkey)<=0{
+	if len(pubkey) <= 0 {
 		return false, fmt.Errorf("SetElection fail the pubkey is nil")
 	}
 
-	api.e.Miner().SetElection(toElect,pubkey);
+	api.e.Miner().SetElection(toElect, pubkey)
 
 	return true, nil
 }
@@ -326,7 +326,7 @@ func NewPublicDebugAPI(etrue *Truechain) *PublicDebugAPI {
 }
 
 // DumpBlock retrieves the entire state of the database at a given block.
-func (api *PublicDebugAPI) DumpBlock(blockNr rpc.BlockNumber) (state.Dump, error) {
+func (api *PublicDebugAPI) DumpBlock(blockNr rpc.BlockNumber) (state.DumpSize, error) {
 	if blockNr == rpc.PendingBlockNumber {
 		// If we're dumping the pending state, we need to request
 		// both the pending block as well as the pending state from
@@ -341,11 +341,11 @@ func (api *PublicDebugAPI) DumpBlock(blockNr rpc.BlockNumber) (state.Dump, error
 		block = api.etrue.blockchain.GetBlockByNumber(uint64(blockNr))
 	}
 	if block == nil {
-		return state.Dump{}, fmt.Errorf("block #%d not found", blockNr)
+		return state.DumpSize{}, fmt.Errorf("block #%d not found", blockNr)
 	}
 	stateDb, err := api.etrue.BlockChain().StateAt(block.Root())
 	if err != nil {
-		return state.Dump{}, err
+		return state.DumpSize{}, err
 	}
 	return stateDb.RawDump(), nil
 }
@@ -354,7 +354,7 @@ func (api *PublicDebugAPI) DumpBlock(blockNr rpc.BlockNumber) (state.Dump, error
 // the private debugging endpoint.
 type PrivateDebugAPI struct {
 	config *params.ChainConfig
-	etrue    *Truechain
+	etrue  *Truechain
 }
 
 // NewPrivateDebugAPI creates a new API definition for the full node-related
