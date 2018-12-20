@@ -6,15 +6,15 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/truechain/truechain-engineering-code/common"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/truechain/truechain-engineering-code/core/types"
-	"github.com/truechain/truechain-engineering-code/crypto"
-	"github.com/truechain/truechain-engineering-code/crypto/sha3"
-	"github.com/truechain/truechain-engineering-code/log"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/sha3"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/truechain/truechain-engineering-code/pbftserver/consensus"
 	"github.com/truechain/truechain-engineering-code/pbftserver/lock"
 	"github.com/truechain/truechain-engineering-code/pbftserver/network"
-	"github.com/truechain/truechain-engineering-code/rlp"
+	"github.com/ethereum/go-ethereum/rlp"
 	"math/big"
 	"sync"
 	"time"
@@ -307,12 +307,12 @@ func (ss *PbftServerMgr) CheckMsg(msg *consensus.RequestMsg) (*types.PbftSign, e
 	lock.PSLog("AGENT", "VerifyFastBlock", "start")
 	sign, err := ss.Agent.VerifyFastBlock(block)
 	lock.PSLog("AGENT", "VerifyFastBlock", sign == nil, err == nil, "end")
-	if err != nil {
+	/*if err != nil {
 		lock.PSLog("AGENT", "VerifyFastBlock err", err.Error())
 		return nil, err
-	}
+	}*/
 	ss.putBlock(height.Uint64(), block)
-	return sign, nil
+	return sign, err
 }
 
 func (ss *PbftServerMgr) ReplyResult(msg *consensus.RequestMsg, signs []*types.PbftSign, res uint) bool {

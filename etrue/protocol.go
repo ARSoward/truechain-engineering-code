@@ -21,10 +21,10 @@ import (
 	"io"
 	"math/big"
 
-	"github.com/truechain/truechain-engineering-code/common"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/truechain/truechain-engineering-code/core/types"
 	"github.com/truechain/truechain-engineering-code/event"
-	"github.com/truechain/truechain-engineering-code/rlp"
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 // Constants to match up protocol versions and messages
@@ -125,7 +125,7 @@ type txPool interface {
 }
 
 type SnailPool interface {
-	AddRemoteFruits([]*types.SnailBlock) []error
+	AddRemoteFruits([]*types.SnailBlock, bool) []error
 	//AddRemoteSnailBlocks([]*types.SnailBlock) []error
 	PendingFruits() map[common.Hash]*types.SnailBlock
 	SubscribeNewFruitEvent(chan<- types.NewFruitsEvent) event.Subscription

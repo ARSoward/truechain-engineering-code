@@ -27,7 +27,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/truechain/truechain-engineering-code/common"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/truechain/truechain-engineering-code/consensus"
 	"github.com/truechain/truechain-engineering-code/core"
 	"github.com/truechain/truechain-engineering-code/core/snailchain"
@@ -38,11 +40,9 @@ import (
 	"github.com/truechain/truechain-engineering-code/etrue/fetcher"
 	"github.com/truechain/truechain-engineering-code/etrue/fetcher/snail"
 	"github.com/truechain/truechain-engineering-code/event"
-	"github.com/truechain/truechain-engineering-code/log"
 	"github.com/truechain/truechain-engineering-code/p2p"
 	"github.com/truechain/truechain-engineering-code/p2p/discover"
 	"github.com/truechain/truechain-engineering-code/params"
-	"github.com/truechain/truechain-engineering-code/rlp"
 )
 
 const (
@@ -56,6 +56,8 @@ const (
 	signChanSize  = 512
 	nodeChanSize  = 256
 	fruitChanSize = 256
+	// minimim number of peers to broadcast new blocks to
+	minBroadcastPeers = 4
 )
 
 var (
@@ -255,7 +257,7 @@ func (pm *ProtocolManager) removePeer(id string) {
 	if peer == nil {
 		return
 	}
-	log.Debug("Removing Truechain peer", "peer", id)
+	log.Info("Removing Truechain peer", "peer", id, "RemoteAddr", peer.RemoteAddr())
 
 	// TODO: downloader.UnregisterPeer
 	// Unregister the peer from the downloader and Truechain peer set
@@ -444,7 +446,7 @@ func (pm *ProtocolManager) handle(p *peer) error {
 	// main loop. handle incoming messages.
 	for {
 		if err := pm.handleMsg(p); err != nil {
-			p.Log().Info("Truechain message handling failed", "err", err)
+			p.Log().Info("Truechain message handling failed", "RemoteAddr", p.RemoteAddr(), "err", err)
 			return err
 		}
 	}
@@ -771,7 +773,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		// Filter out any explicitly requested bodies, deliver the rest to the downloader
 		filter := len(transactions) > 0 || len(signs) > 0
 		if len(signs) > 0 {
-			log.Debug("FastBlockBodiesMsg", "len(signs)", len(signs), "number", signs[0][0].FastHash, "len(transactions)", len(transactions))
+			log.Debug("FastBlockBodiesMsg", "len(signs)", len(signs), "number", signs[0][0].FastHeight, "len(transactions)", len(transactions))
 		}
 		if filter {
 			transactions, signs = pm.fetcherFast.FilterBodies(p.id, transactions, signs, time.Now())
@@ -987,6 +989,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			}
 			p.MarkTransaction(tx.Hash())
 		}
+		//log.Debug("receive TxMsg", "from peer's id",p.id,"len(txs)",len(txs))
 		pm.txpool.AddRemotes(txs)
 
 	case msg.Code == PbftNodeInfoMsg:
@@ -1038,11 +1041,10 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				return errResp(ErrDecode, "fruit %d is nil", i)
 			}
 			p.MarkFruit(fruit.Hash())
-			log.Trace("add fruit from p2p", "number", fruit.FastNumber(), "hash", fruit.Hash())
-			log.Info("add fruit from p2p", "peerid", p.id, "number", fruit.FastNumber(), "hash", fruit.Hash())
+			log.Debug("add fruit from p2p", "peerid", p.id, "number", fruit.FastNumber(), "hash", fruit.Hash())
 		}
 
-		pm.SnailPool.AddRemoteFruits(fruits)
+		pm.SnailPool.AddRemoteFruits(fruits, false)
 
 	case msg.Code == SnailBlockMsg:
 		// snailBlock arrived, make sure we have a valid and fresh chain to handle them
@@ -1105,7 +1107,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 	timeString := time.Now().Sub(now).String()
 	if strings.Contains(timeString, "h") {
 		log.Info("Handler", "peer", p.id, "msg code", msg.Code, "time", timeString)
-		return errors.New(fmt.Sprintf("msg code = %d, ip = %s", msg.Code, p.RemoteAddr()))
+		return fmt.Errorf("msg code = %d, ip = %s", msg.Code, p.RemoteAddr())
 	}
 
 	log.Trace("Handler", "peer", p.id, "msg code", msg.Code, "time", timeString)
@@ -1125,6 +1127,13 @@ func (pm *ProtocolManager) BroadcastFastBlock(block *types.Block, propagate bool
 			return
 		}
 		// Send the block to a subset of our peers
+		transferLen := int(math.Sqrt(float64(len(peers))))
+		if transferLen < minBroadcastPeers {
+			transferLen = minBroadcastPeers
+		}
+		if transferLen > len(peers) {
+			transferLen = len(peers)
+		}
 		transfer := peers[:int(math.Sqrt(float64(len(peers))))]
 		for _, peer := range transfer {
 			peer.AsyncSendNewFastBlock(block)
@@ -1141,7 +1150,7 @@ func (pm *ProtocolManager) BroadcastFastBlock(block *types.Block, propagate bool
 	}
 }
 
-// BroadcastPbSigns will propagate a batch of PbftVoteSigns to all peers which are not known to
+// BroadcastPbSign will propagate a batch of PbftVoteSigns to all peers which are not known to
 // already have the given PbftVoteSign.
 func (pm *ProtocolManager) BroadcastPbSign(pbSigns []*types.PbftSign) {
 	var pbSignSet = make(map[*peer][]*types.PbftSign)
@@ -1229,7 +1238,7 @@ func (pm *ProtocolManager) BroadcastTxs(txs types.Transactions) {
 		for _, peer := range peers {
 			txset[peer] = append(txset[peer], tx)
 		}
-		log.Trace("Broadcast transaction", "hash", tx.Hash(), "recipients", len(peers))
+		log.Debug("BroadcastTxs", "hash", tx.Hash(), "recipients", len(peers))
 	}
 	// FIXME include this again: peers = peers[:int(math.Sqrt(float64(len(peers))))]
 	for peer, txs := range txset {
@@ -1237,7 +1246,8 @@ func (pm *ProtocolManager) BroadcastTxs(txs types.Transactions) {
 	}
 }
 
-//for fruits
+// BroadcastFruits will propagate a batch of fruits to all peers which are not known to
+// already have the given fruit.
 func (pm *ProtocolManager) BroadcastFruits(fruits types.Fruits) {
 	var fruitset = make(map[*peer]types.Fruits)
 
@@ -1313,6 +1323,7 @@ func (pm *ProtocolManager) txBroadcastLoop() {
 	for {
 		select {
 		case event := <-pm.txsCh:
+			log.Debug("txBroadcastLoop", "len(Txs)", len(event.Txs))
 			pm.BroadcastTxs(event.Txs)
 
 			// Err() channel will be closed when unsubscribing.

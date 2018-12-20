@@ -28,21 +28,21 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru"
-	"github.com/truechain/truechain-engineering-code/common"
-	"github.com/truechain/truechain-engineering-code/common/mclock"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/mclock"
 	"github.com/truechain/truechain-engineering-code/consensus"
 	"github.com/truechain/truechain-engineering-code/core/snailchain/rawdb"
 	"github.com/truechain/truechain-engineering-code/core"
 	"github.com/truechain/truechain-engineering-code/core/state"
 	"github.com/truechain/truechain-engineering-code/core/types"
 	"github.com/truechain/truechain-engineering-code/core/vm"
-	//"github.com/truechain/truechain-engineering-code/crypto"
+	//"github.com/ethereum/go-ethereum/crypto"
 	"github.com/truechain/truechain-engineering-code/ethdb"
 	"github.com/truechain/truechain-engineering-code/event"
-	"github.com/truechain/truechain-engineering-code/log"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/truechain/truechain-engineering-code/metrics"
 	"github.com/truechain/truechain-engineering-code/params"
-	"github.com/truechain/truechain-engineering-code/rlp"
+	"github.com/ethereum/go-ethereum/rlp"
 	"gopkg.in/karalabe/cookiejar.v2/collections/prque"
 )
 
@@ -520,7 +520,7 @@ func (bc *SnailBlockChain) HasBlockAndState(hash common.Hash, number uint64) boo
 	if block == nil {
 		return false
 	}
-	return true
+	return rawdb.ReadCanonicalHash(bc.db, number) == hash
 }
 
 // GetBlock retrieves a block from the database by hash and number,
@@ -586,6 +586,18 @@ func (bc *SnailBlockChain) GetBlocksFromHash(hash common.Hash, n int) (blocks []
 	return
 }
 
+func (bc *SnailBlockChain) GetBlocksFromNumber(fromNumber uint64) (blocks []*types.SnailBlock) {
+	currentNumber := bc.CurrentBlock().Number()
+	for i := fromNumber; i <= currentNumber.Uint64(); i++ {
+		block := bc.GetBlockByNumber(i)
+		if block == nil {
+			break
+		}
+		blocks = append(blocks, block)
+	}
+	return
+}
+
 // GetUnclesInChain retrieves all the uncles from a given block backwards until
 // a specific distance is reached.
 
@@ -641,7 +653,7 @@ func (bc *SnailBlockChain) procFutureBlocks() {
 type WriteStatus byte
 
 const (
-	NonStatTy WriteStatus = iota
+	NonStatTy   WriteStatus = iota
 	CanonStatTy
 	SideStatTy
 )

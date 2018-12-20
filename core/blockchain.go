@@ -27,20 +27,20 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru"
-	"github.com/truechain/truechain-engineering-code/common"
-	"github.com/truechain/truechain-engineering-code/common/mclock"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/mclock"
 	"github.com/truechain/truechain-engineering-code/consensus"
 	"github.com/truechain/truechain-engineering-code/core/rawdb"
 	"github.com/truechain/truechain-engineering-code/core/state"
 	"github.com/truechain/truechain-engineering-code/core/types"
 	"github.com/truechain/truechain-engineering-code/core/vm"
-	"github.com/truechain/truechain-engineering-code/crypto"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/truechain/truechain-engineering-code/ethdb"
 	"github.com/truechain/truechain-engineering-code/event"
-	"github.com/truechain/truechain-engineering-code/log"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/truechain/truechain-engineering-code/metrics"
 	"github.com/truechain/truechain-engineering-code/params"
-	"github.com/truechain/truechain-engineering-code/rlp"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/truechain/truechain-engineering-code/trie"
 	"gopkg.in/karalabe/cookiejar.v2/collections/prque"
 )
@@ -308,12 +308,6 @@ func (bc *BlockChain) loadLastState() error {
 	//log.Info("Loaded most recent local header", "number", currentHeader.Number, "hash", currentHeader.Hash(), "td", headerTd)
 	//log.Info("Loaded most recent local full block", "number", currentBlock.Number(), "hash", currentBlock.Hash(), "td", blockTd)
 	//log.Info("Loaded most recent local fast block", "number", currentFastBlock.Number(), "hash", currentFastBlock.Hash(), "td", fastTd)
-
-	//for _,sign:= range bc.GetBlockByNumber(368315).Signs(){
-	//	log.Info("signblock ","sign",sign)
-	//}
-
-
 
 	//log.Info("signblock ","number",bc.engine.GetElection().GetCommittee(big.NewInt(368314)) )
 
@@ -637,6 +631,16 @@ func (bc *BlockChain) HasState(hash common.Hash) bool {
 	return err == nil
 }
 
+// VerifyHasState checks if state trie is fully present in the database or not.
+// or CurrentFastBlock number  > the number of fb
+func (bc *BlockChain) VerifyHasState(fb *types.Block) bool {
+	_, err := bc.stateCache.OpenTrie(fb.Root())
+	if err != nil && bc.CurrentBlock().NumberU64() > fb.NumberU64() {
+		return true
+	}
+	return err == nil
+}
+
 // HasBlockAndState checks if a block and associated state trie is fully present
 // in the database or not, caching it if present.
 func (bc *BlockChain) HasBlockAndState(hash common.Hash, number uint64) bool {
@@ -645,7 +649,8 @@ func (bc *BlockChain) HasBlockAndState(hash common.Hash, number uint64) bool {
 	if block == nil {
 		return false
 	}
-	return bc.HasState(block.Root())
+	//return bc.HasState(block.Root())
+	return bc.VerifyHasState(block)
 }
 
 // GetBlock retrieves a block from the database by hash and number,
@@ -791,7 +796,7 @@ func (bc *BlockChain) procFutureBlocks() {
 type WriteStatus byte
 
 const (
-	NonStatTy WriteStatus = iota
+	NonStatTy   WriteStatus = iota
 	CanonStatTy
 	SideStatTy
 )
@@ -918,7 +923,6 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 
 		}
 
-
 		// Write all the data out into the database
 		rawdb.WriteBody(batch, block.Hash(), block.NumberU64(), block.Body())
 		rawdb.WriteReceipts(batch, block.Hash(), block.NumberU64(), receipts)
@@ -1021,7 +1025,6 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 		bc.currentReward.Store(br)
 
 	}
-
 	root, err := state.Commit(true)
 	if err != nil {
 		return NonStatTy, err
@@ -1219,6 +1222,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 		}
 		switch {
 		case err == ErrKnownBlock:
+			log.Warn("insertchain method error ", "err", err, ",currentBlock", bc.CurrentBlock().NumberU64(),
+				"receiveBlock", block.NumberU64())
 			// Block and state both already known. However if the current block is below
 			// this number we did a rollback and we should reimport it nonetheless.
 			if bc.CurrentBlock().NumberU64() >= block.NumberU64() {
@@ -1238,6 +1243,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 			continue
 
 		case err == consensus.ErrUnknownAncestor && bc.futureBlocks.Contains(block.ParentHash()):
+			log.Warn("insertchain method error ", "err", err, ",currentBlock", bc.CurrentBlock().NumberU64(),
+				"receiveBlock", block.NumberU64())
 			bc.futureBlocks.Add(block.Hash(), block)
 			stats.queued++
 			continue
@@ -1254,6 +1261,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 			//	}
 			//	continue
 			//}
+			log.Warn("insertchain method error ", "err", err, ",currentBlock", bc.CurrentBlock().NumberU64(),
+				"receiveBlock", block.NumberU64())
 			// Competitor chain beat canonical, gather all blocks from the common ancestor
 			var winner []*types.Block
 
@@ -1765,11 +1774,11 @@ func (bc *BlockChain) GetFastHeightBySnailHeight(number uint64) *types.BlockRewa
 	return signs
 }
 
-func (bc *BlockChain) GetBlockNumber() uint64  {
+func (bc *BlockChain) GetBlockNumber() uint64 {
 
 	if bc.CurrentFastBlock().NumberU64() > bc.CurrentBlock().NumberU64() {
 		return bc.CurrentFastBlock().NumberU64()
 	}
 	return bc.CurrentBlock().NumberU64()
-	
+
 }

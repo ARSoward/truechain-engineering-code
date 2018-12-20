@@ -21,7 +21,7 @@ import (
 	"github.com/truechain/truechain-engineering-code/consensus"
 	"github.com/truechain/truechain-engineering-code/core/state"
 	"github.com/truechain/truechain-engineering-code/core/types"
-	"github.com/truechain/truechain-engineering-code/log"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/truechain/truechain-engineering-code/params"
 )
 
@@ -54,6 +54,8 @@ func (fv *BlockValidator) ValidateBody(block *types.Block, validateSign bool) er
 		return ErrKnownBlock
 	}
 	if !fv.bc.HasBlockAndState(block.ParentHash(), block.NumberU64()-1) {
+		log.Error("ValidateBody method","number",block.NumberU64()-1,
+			"hash",block.ParentHash())
 		if !fv.bc.HasBlock(block.ParentHash(), block.NumberU64()-1) {
 			return consensus.ErrUnknownAncestor
 		}
@@ -73,7 +75,7 @@ func (fv *BlockValidator) ValidateBody(block *types.Block, validateSign bool) er
 	}
 
 	if validateSign {
-		if err := fv.bc.engine.VerifySigns(block.Number(), block.Signs()); err != nil {
+		if err := fv.bc.engine.VerifySigns(block.Number(), block.Hash(), block.Signs()); err != nil {
 			log.Info("Fast VerifySigns Err", "number", block.NumberU64(), "signs", block.Signs())
 			return err
 		}

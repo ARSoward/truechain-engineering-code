@@ -20,7 +20,7 @@ package consensus
 import (
 	"math/big"
 
-	"github.com/truechain/truechain-engineering-code/common"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/truechain/truechain-engineering-code/core/state"
 	"github.com/truechain/truechain-engineering-code/core/types"
 	"github.com/truechain/truechain-engineering-code/params"
@@ -115,7 +115,7 @@ type Engine interface {
 
 	VerifyFreshness(chain SnailChainReader, fruit, block *types.SnailHeader, canonical bool) error
 
-	VerifySigns(fastnumber *big.Int, signs []*types.PbftSign) error
+	VerifySigns(fastnumber *big.Int, fastHash common.Hash, signs []*types.PbftSign) error
 
 	// Prepare initializes the consensus fields of a block header according to the
 	// rules of a particular engine. The changes are executed inline.

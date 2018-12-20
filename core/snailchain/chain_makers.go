@@ -21,7 +21,7 @@ import (
 
 	"fmt"
 
-	"github.com/truechain/truechain-engineering-code/common"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/truechain/truechain-engineering-code/consensus"
 	"github.com/truechain/truechain-engineering-code/consensus/minerva"
 	"github.com/truechain/truechain-engineering-code/core"
@@ -208,11 +208,6 @@ func makeBlockChain(fastChain *core.BlockChain, parent *types.SnailBlock, n int,
 	})
 
 	return blocks
-}
-
-func MakeFruit(chain *SnailBlockChain, fastchain *core.BlockChain, makeBlockNum int, makeStartFastNum int, makeFruitSize int,
-	pubkey []byte, coinbaseAddr common.Address, diff *big.Int) (*types.SnailBlock, error) {
-	return makeSnailBlockFruitInternal(chain, fastchain, makeBlockNum, makeStartFastNum, makeFruitSize, pubkey, coinbaseAddr, false, diff)
 }
 
 func MakeSnailBlockFruit(chain *SnailBlockChain, fastchain *core.BlockChain, makeBlockNum int, makeFruitSize int,
@@ -469,4 +464,9 @@ func MakeChain(fastBlockNumbers int, snailBlockNumbers int) (*SnailBlockChain, *
 	}
 
 	return snailChain, fastchain
+}
+
+
+func MakeSnailChain(snailBlockNumbers int) (*SnailBlockChain, *core.BlockChain) {
+	return MakeChain(snailBlockNumbers * params.MinimumFruits, snailBlockNumbers)
 }

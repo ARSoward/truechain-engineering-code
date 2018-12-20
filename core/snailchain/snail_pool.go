@@ -1,4 +1,4 @@
-// Copyright 2018 The Truechain Authors
+// Copyright 2018 The TrueChain Authors
 // This file is part of the truechain-engineering-code library.
 //
 // The truechain-engineering-code library is free software: you can redistribute it and/or modify
@@ -17,22 +17,28 @@
 package snailchain
 
 import (
+	"errors"
 	"math"
 	"sync"
 	"time"
 
-	"github.com/truechain/truechain-engineering-code/common"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/truechain/truechain-engineering-code/consensus"
+	"github.com/truechain/truechain-engineering-code/core"
 	"github.com/truechain/truechain-engineering-code/core/types"
 	"github.com/truechain/truechain-engineering-code/event"
-	"github.com/truechain/truechain-engineering-code/log"
 	"github.com/truechain/truechain-engineering-code/metrics"
-	"github.com/truechain/truechain-engineering-code/core"
 )
 
 const (
 	fruitChanSize     = 1024
 	chainHeadChanSize = 10
+)
+
+var (
+	// ErrNotExist is returned if the fast block not exist in fastchain.
+	ErrNotExist = errors.New("not exist")
 )
 
 var (
@@ -149,6 +155,7 @@ func NewSnailPool(config SnailPoolConfig, fastBlockChain *core.BlockChain, chain
 	return pool
 }
 
+//Start load and  rotate Journal
 func (pool *SnailPool) Start() {
 	// If journaling is enabled, load fruit from disk
 	if pool.config.Journal != "" {
@@ -250,6 +257,17 @@ func (pool *SnailPool) addFruit(fruit *types.SnailBlock) error {
 	return nil
 }
 
+// journalFruit adds the specified fruit to the local disk journal
+func (pool *SnailPool) journalFruit(fruit *types.SnailBlock) {
+	// Only journal if it's enabled
+	if pool.journal == nil {
+		return
+	}
+	if err := pool.journal.insert(fruit); err != nil {
+		log.Warn("Failed to journal fruit", "err", err)
+	}
+}
+
 // loop is the fruit pool's main event loop, waiting for and reacting to
 // outside blockchain events as well as for various reporting and fruit
 // eviction events.
@@ -283,7 +301,6 @@ func (pool *SnailPool) loop() {
 
 				pool.mu.Unlock()
 			}
-
 
 		case fruit := <-pool.newFruitCh:
 			if fruit != nil {
@@ -464,6 +481,7 @@ func (pool *SnailPool) removeUnfreshFruit() {
 	}
 }
 
+//RemovePendingFruitByFastHash remove unVerifyFreshness fruit
 func (pool *SnailPool) RemovePendingFruitByFastHash(fasthash common.Hash) {
 	pool.muFruit.Lock()
 	defer pool.muFruit.Unlock()
@@ -490,7 +508,7 @@ func (pool *SnailPool) Stop() {
 }
 
 // AddRemoteFruits enqueues a batch of fruits into the pool if they are valid.
-func (pool *SnailPool) AddRemoteFruits(fruits []*types.SnailBlock) []error {
+func (pool *SnailPool) AddRemoteFruits(fruits []*types.SnailBlock, local bool) []error {
 
 	errs := make([]error, len(fruits))
 
@@ -504,6 +522,9 @@ func (pool *SnailPool) AddRemoteFruits(fruits []*types.SnailBlock) []error {
 
 		f := types.CopyFruit(fruit)
 		pool.newFruitCh <- f
+		if local {
+			pool.journalFruit(fruit)
+		}
 	}
 
 	return errs
@@ -581,23 +602,23 @@ func (pool *SnailPool) validateFruit(fruit *types.SnailBlock) error {
 	//check integrity
 	getSignHash := types.CalcSignHash(fruit.Signs())
 	if fruit.Header().SignHash != getSignHash {
-		return ErrInvalidSign
+		return ErrInvalidSignHash
 	}
 	// check freshness
 	/*
-	err := pool.engine.VerifyFreshness(fruit.Header(), nil)
-	if err != nil {
-		log.Debug("validateFruit verify freshness err","err", err, "fruit", fruit.FastNumber(), "hash", fruit.Hash())
+		err := pool.engine.VerifyFreshness(fruit.Header(), nil)
+		if err != nil {
+			log.Debug("validateFruit verify freshness err","err", err, "fruit", fruit.FastNumber(), "hash", fruit.Hash())
 
-		return nil
-	}*/
+			return nil
+		}*/
 
 	/*
-	header := fruit.Header()
-	if err := pool.engine.VerifySnailHeader(pool.chain, pool.fastchain, header, true); err != nil {
-		log.Info("validateFruit verify header err", "err", err, "fruit", fruit.FastNumber(), "hash", fruit.Hash())
-		return err
-	}*/
+		header := fruit.Header()
+		if err := pool.engine.VerifySnailHeader(pool.chain, pool.fastchain, header, true); err != nil {
+			log.Info("validateFruit verify header err", "err", err, "fruit", fruit.FastNumber(), "hash", fruit.Hash())
+			return err
+		}*/
 
 	return nil
 }
