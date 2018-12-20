@@ -55,7 +55,9 @@ func (self *StateDB) RawDump() DumpSize {
 	for it.Next() {
 		i++
 		addr := self.trie.GetKey(it.Key)
-		log.Info("RawDump", "it.Key", len(it.Key), "addr", len(addr), "it.Value", len(it.Value), "i", i, "sum", sum)
+		if i%100 == 0 {
+			log.Info("RawDump", "it.Key", len(it.Key), "addr", len(addr), "it.Value", len(it.Value), "i", i, "sum", sum)
+		}
 		sum = sum + len(it.Key) + len(it.Value)
 		var data Account
 		if err := rlp.DecodeBytes(it.Value, &data); err != nil {
@@ -69,7 +71,9 @@ func (self *StateDB) RawDump() DumpSize {
 			storage = len(storageIt.Key) + len(storageIt.Value)
 		}
 		sum = sum + storage
-		log.Info("RawDump", "i", i, "storage", storage, "sum", sum)
+		if i%100 == 0 {
+			log.Info("RawDump", "i", i, "storage", storage, "sum", sum)
+		}
 	}
 	log.Info("RawDump", "i", i, "sum", sum, "sumB", sum/1024, "sumM", sum/1024/1024)
 	return DumpSize{count: strconv.Itoa(i), size: strconv.Itoa(sum), sizeByte: strconv.Itoa(sum / 1024), sizeM: strconv.Itoa((sum / 1024) / 1024)}
