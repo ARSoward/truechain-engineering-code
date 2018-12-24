@@ -19,6 +19,7 @@ package p2p
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 const (
@@ -112,8 +113,10 @@ func discReasonForError(err error) DiscReason {
 		case errInvalidMsgCode, errInvalidMsg:
 			return DiscProtocolError
 		default:
+			log.Info("discReasonForError", "error", err, "peerError", peerError)
 			return DiscSubprotocolError
 		}
 	}
+	log.Info("discReasonForError", "error", err.Error(), "error", err.Error())
 	return DiscSubprotocolError
 }
