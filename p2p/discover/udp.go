@@ -599,7 +599,7 @@ func (req *ping) handle(t *udp, from *net.UDPAddr, fromID NodeID, mac []byte) er
 	if expired(req.Expiration) {
 		return errExpired
 	}
-	log.Info("handle", "version", req.Version)
+	//log.Info("handle", "version", req.Version)
 	//if req.Version != 5 {
 	//	return errVersion
 	//}

@@ -18,9 +18,9 @@ package rawdb
 
 import (
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/truechain/truechain-engineering-code/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/truechain/truechain-engineering-code/core/types"
 )
 
 // ReadTxLookupEntry retrieves the positional metadata associated with a transaction
@@ -40,7 +40,8 @@ func ReadTxLookupEntry(db DatabaseReader, hash common.Hash) (common.Hash, uint64
 
 // WriteTxLookupEntries stores a positional metadata for every transaction from
 // a block, enabling hash based transaction and receipt lookups.
-func WriteTxLookupEntries(db DatabaseWriter, block *types.Block) {
+func WriteTxLookupEntries(db DatabaseWriter, block *types.Block) int {
+	count := 0
 	for i, tx := range block.Transactions() {
 		entry := TxLookupEntry{
 			BlockHash:  block.Hash(),
@@ -49,7 +50,8 @@ func WriteTxLookupEntries(db DatabaseWriter, block *types.Block) {
 		}
 		data, err := rlp.EncodeToBytes(entry)
 		//log.Info("=========   size of TX",len(data),"number of fast",block.NumberU64())
-
+		key := txLookupKey(tx.Hash())
+		count += len(key) + len(data)
 		if err != nil {
 			log.Crit("Failed to encode transaction lookup entry", "err", err)
 		}
@@ -57,6 +59,7 @@ func WriteTxLookupEntries(db DatabaseWriter, block *types.Block) {
 			log.Crit("Failed to store transaction lookup entry", "err", err)
 		}
 	}
+	return count
 }
 
 // DeleteTxLookupEntry removes all transaction data associated with a hash.

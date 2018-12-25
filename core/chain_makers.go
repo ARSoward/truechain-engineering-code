@@ -170,8 +170,6 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 		config = params.TestChainConfig
 	}
 
-
-
 	blocks, receipts := make(types.Blocks, n), make([]types.Receipts, n)
 	genblock := func(i int, parent *types.Block, statedb *state.StateDB) (*types.Block, types.Receipts) {
 		// TODO(karalabe): This is needed for clique, which depends on multiple blocks.
@@ -197,7 +195,7 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 			if err != nil {
 				panic(fmt.Sprintf("state write error: %v", err))
 			}
-			if err := statedb.Database().TrieDB().Commit(root, false); err != nil {
+			if err, _ := statedb.Database().TrieDB().Commit(root, false); err != nil {
 				panic(fmt.Sprintf("trie write error: %v", err))
 			}
 			return block, b.receipts
@@ -217,16 +215,14 @@ func GenerateChain(config *params.ChainConfig, parent *types.Block, engine conse
 	return blocks, receipts
 }
 
-
-func GenerateBlockChain(config *params.ChainConfig, parent *types.Block, engine consensus.Engine, db ethdb.Database, n int, gen func(int, *BlockGen)) ([]*types.Block, []types.Receipts,*BlockChain) {
+func GenerateBlockChain(config *params.ChainConfig, parent *types.Block, engine consensus.Engine, db ethdb.Database, n int, gen func(int, *BlockGen)) ([]*types.Block, []types.Receipts, *BlockChain) {
 	if config == nil {
 		config = params.TestChainConfig
 	}
 
-
 	blockchain, _ := NewBlockChain(db, nil, config, engine, vm.Config{})
 	blocks, receipts := make(types.Blocks, n), make([]types.Receipts, n)
-	genblock := func(i int, parent *types.Block, statedb *state.StateDB,blockchain *BlockChain) (*types.Block, types.Receipts) {
+	genblock := func(i int, parent *types.Block, statedb *state.StateDB, blockchain *BlockChain) (*types.Block, types.Receipts) {
 		// TODO(karalabe): This is needed for clique, which depends on multiple blocks.
 		// It's nonetheless ugly to spin up a blockchain here. Get rid of this somehow.
 
@@ -250,7 +246,7 @@ func GenerateBlockChain(config *params.ChainConfig, parent *types.Block, engine 
 			if err != nil {
 				panic(fmt.Sprintf("state write error: %v", err))
 			}
-			if err := statedb.Database().TrieDB().Commit(root, false); err != nil {
+			if err, _ := statedb.Database().TrieDB().Commit(root, false); err != nil {
 				panic(fmt.Sprintf("trie write error: %v", err))
 			}
 			return block, b.receipts
@@ -263,16 +259,14 @@ func GenerateBlockChain(config *params.ChainConfig, parent *types.Block, engine 
 		if err != nil {
 			panic(err)
 		}
-		block, receipt := genblock(i, parent, statedb,blockchain)
+		block, receipt := genblock(i, parent, statedb, blockchain)
 		blocks[i] = block
 		receipts[i] = receipt
 		parent = block
 
 	}
-	return blocks, receipts,blockchain
+	return blocks, receipts, blockchain
 }
-
-
 
 func makeHeader(chain consensus.ChainReader, parent *types.Block, state *state.StateDB, engine consensus.Engine) *types.Header {
 	var time *big.Int
@@ -312,9 +306,10 @@ func makeBlockChain(parent *types.Block, n int, engine consensus.Engine, db ethd
 }
 
 func NewCanonical(engine consensus.Engine, n int, full bool) (ethdb.Database, *BlockChain, error) {
-	db,blockchain,err := newCanonical(engine, n, full)
-	return db,blockchain,err
+	db, blockchain, err := newCanonical(engine, n, full)
+	return db, blockchain, err
 }
+
 // newCanonical creates a chain database, and injects a deterministic canonical
 // chain. Depending on the full flag, if creates either a full block chain or a
 // header only chain.

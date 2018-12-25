@@ -26,13 +26,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/golang-lru"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/hashicorp/golang-lru"
 	"github.com/truechain/truechain-engineering-code/consensus"
 	"github.com/truechain/truechain-engineering-code/core/rawdb"
 	"github.com/truechain/truechain-engineering-code/core/types"
 	"github.com/truechain/truechain-engineering-code/ethdb"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/truechain/truechain-engineering-code/params"
 )
 
@@ -62,8 +62,10 @@ type HeaderChain struct {
 
 	procInterrupt func() bool
 
-	rand   *mrand.Rand
-	engine consensus.Engine
+	rand      *mrand.Rand
+	engine    consensus.Engine
+	Canonical int64
+	Head      int64
 }
 
 // NewHeaderChain creates a new HeaderChain structure.
@@ -90,6 +92,8 @@ func NewHeaderChain(chainDb ethdb.Database, config *params.ChainConfig, engine c
 		procInterrupt: procInterrupt,
 		rand:          mrand.New(mrand.NewSource(seed.Int64())),
 		engine:        engine,
+		Canonical:     0,
+		Head:          0,
 	}
 
 	fhc.genesisHeader = fhc.GetHeaderByNumber(0)
@@ -150,7 +154,8 @@ func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, er
 	//	log.Crit("Failed to write header total difficulty", "err", err)
 	//}
 
-	rawdb.WriteHeader(hc.chainDb, header)
+	count := rawdb.WriteHeader(hc.chainDb, header)
+	hc.Head += int64(count)
 
 	// If the total difficulty is higher than our known, add it to the canonical chain
 	// Second clause in the if statement reduces the vulnerability to selfish mining.
@@ -193,8 +198,9 @@ func (hc *HeaderChain) WriteHeader(header *types.Header) (status WriteStatus, er
 	//}
 
 	// Extend the canonical chain with the new header
-	rawdb.WriteCanonicalHash(hc.chainDb, hash, number)
-	rawdb.WriteHeadHeaderHash(hc.chainDb, hash)
+	count = rawdb.WriteCanonicalHash(hc.chainDb, hash, number)
+	hc.Canonical += int64(count)
+	count = rawdb.WriteHeadHeaderHash(hc.chainDb, hash)
 
 	hc.currentHeaderHash = hash
 	hc.currentHeader.Store(types.CopyHeader(header))

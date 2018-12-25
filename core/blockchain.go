@@ -26,21 +26,21 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/golang-lru"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/mclock"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/hashicorp/golang-lru"
 	"github.com/truechain/truechain-engineering-code/consensus"
 	"github.com/truechain/truechain-engineering-code/core/rawdb"
 	"github.com/truechain/truechain-engineering-code/core/state"
 	"github.com/truechain/truechain-engineering-code/core/types"
 	"github.com/truechain/truechain-engineering-code/core/vm"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/truechain/truechain-engineering-code/ethdb"
 	"github.com/truechain/truechain-engineering-code/event"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/truechain/truechain-engineering-code/metrics"
 	"github.com/truechain/truechain-engineering-code/params"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/truechain/truechain-engineering-code/trie"
 	"gopkg.in/karalabe/cookiejar.v2/collections/prque"
 )
@@ -163,7 +163,14 @@ type BlockChain struct {
 	validator Validator // block and state validator interface
 	vmConfig  vm.Config
 
-	badBlocks *lru.Cache // Bad block cache
+	badBlocks     *lru.Cache // Bad block cache
+	preimages     int64
+	receipts      int64
+	lookupEntries int64
+	body          int64
+	bodyAndHead   int64
+	cap           int64
+	commit        int64
 }
 
 // NewBlockChain returns a fully initialised block chain using information
@@ -188,21 +195,28 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig,
 	rewardCache, _ := lru.New(bodyCacheLimit)
 
 	bc := &BlockChain{
-		chainConfig:  chainConfig,
-		cacheConfig:  cacheConfig,
-		db:           db,
-		triegc:       prque.New(),
-		stateCache:   state.NewDatabase(db),
-		quit:         make(chan struct{}),
-		bodyCache:    bodyCache,
-		signCache:    signCache,
-		bodyRLPCache: bodyRLPCache,
-		blockCache:   blockCache,
-		futureBlocks: futureBlocks,
-		rewardCache:  rewardCache,
-		engine:       engine,
-		vmConfig:     vmConfig,
-		badBlocks:    badBlocks,
+		chainConfig:   chainConfig,
+		cacheConfig:   cacheConfig,
+		db:            db,
+		triegc:        prque.New(),
+		stateCache:    state.NewDatabase(db),
+		quit:          make(chan struct{}),
+		bodyCache:     bodyCache,
+		signCache:     signCache,
+		bodyRLPCache:  bodyRLPCache,
+		blockCache:    blockCache,
+		futureBlocks:  futureBlocks,
+		rewardCache:   rewardCache,
+		engine:        engine,
+		vmConfig:      vmConfig,
+		badBlocks:     badBlocks,
+		preimages:     0,
+		receipts:      0,
+		lookupEntries: 0,
+		body:          0,
+		bodyAndHead:   0,
+		cap:           0,
+		commit:        0,
 	}
 	bc.SetValidator(NewBlockValidator(chainConfig, bc, engine))
 	bc.SetProcessor(NewStateProcessor(chainConfig, bc, engine))
@@ -558,7 +572,8 @@ func (bc *BlockChain) insert(block *types.Block) {
 	updateHeads := rawdb.ReadCanonicalHash(bc.db, block.NumberU64()) != block.Hash()
 
 	// Add the block to the canonical chain number scheme and mark as the head
-	rawdb.WriteCanonicalHash(bc.db, block.Hash(), block.NumberU64())
+	count := rawdb.WriteCanonicalHash(bc.db, block.Hash(), block.NumberU64())
+	bc.hc.Canonical += int64(count)
 	rawdb.WriteHeadBlockHash(bc.db, block.Hash())
 	bc.currentBlock.Store(block)
 
@@ -760,7 +775,7 @@ func (bc *BlockChain) Stop() {
 				recent := bc.GetBlockByNumber(number - offset)
 
 				log.Info("Writing cached state to disk", "block", recent.Number(), "hash", recent.Hash(), "root", recent.Root())
-				if err := triedb.Commit(recent.Root(), true); err != nil {
+				if err, _ := triedb.Commit(recent.Root(), true); err != nil {
 					log.Error("Failed to commit recent state trie", "err", err)
 				}
 			}
@@ -796,7 +811,7 @@ func (bc *BlockChain) procFutureBlocks() {
 type WriteStatus byte
 
 const (
-	NonStatTy   WriteStatus = iota
+	NonStatTy WriteStatus = iota
 	CanonStatTy
 	SideStatTy
 )
@@ -924,9 +939,12 @@ func (bc *BlockChain) InsertReceiptChain(blockChain types.Blocks, receiptChain [
 		}
 
 		// Write all the data out into the database
-		rawdb.WriteBody(batch, block.Hash(), block.NumberU64(), block.Body())
-		rawdb.WriteReceipts(batch, block.Hash(), block.NumberU64(), receipts)
-		rawdb.WriteTxLookupEntries(batch, block)
+		count := rawdb.WriteBody(batch, block.Hash(), block.NumberU64(), block.Body())
+		bc.body += int64(count)
+		count = rawdb.WriteReceipts(batch, block.Hash(), block.NumberU64(), receipts)
+		bc.receipts += int64(count)
+		count = rawdb.WriteTxLookupEntries(batch, block)
+		bc.lookupEntries += int64(count)
 
 		stats.processed++
 
@@ -979,8 +997,8 @@ func (bc *BlockChain) WriteBlockWithoutState(block *types.Block, td *big.Int) (e
 	//if err := bc.hc.WriteTd(block.Hash(), block.NumberU64(), td); err != nil {
 	//	return err
 	//}
-	rawdb.WriteBlock(bc.db, block)
-
+	count := rawdb.WriteBlock(bc.db, block)
+	bc.bodyAndHead += int64(count)
 	return nil
 }
 
@@ -1008,7 +1026,8 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 	//}
 	// Write other block data using a batch.
 	batch := bc.db.NewBatch()
-	rawdb.WriteBlock(batch, block)
+	count := rawdb.WriteBlock(batch, block)
+	bc.bodyAndHead += int64(count)
 
 	if block.SnailNumber().Int64() != 0 {
 		//create BlockReward
@@ -1033,7 +1052,9 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 
 	// If we're running an archive node, always flush
 	if bc.cacheConfig.Disabled {
-		if err := triedb.Commit(root, false); err != nil {
+		err, num := triedb.Commit(root, false)
+		bc.commit += int64(num)
+		if err != nil {
 			return NonStatTy, err
 		}
 	} else {
@@ -1048,7 +1069,11 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 				limit       = common.StorageSize(bc.cacheConfig.TrieNodeLimit) * 1024 * 1024
 			)
 			if nodes > limit || imgs > 4*1024*1024 {
-				triedb.Cap(limit - ethdb.IdealBatchSize)
+				err, num := triedb.Cap(limit - ethdb.IdealBatchSize)
+				bc.cap += int64(num)
+				if err != nil {
+					log.Info("WriteBlockWithState", "err", err)
+				}
 			}
 			// Find the next state trie we need to commit
 			header := bc.GetHeaderByNumber(current - triesInMemory)
@@ -1062,7 +1087,11 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 					log.Info("State in memory for too long, committing", "time", bc.gcproc, "allowance", bc.cacheConfig.TrieTimeLimit, "optimum", float64(chosen-lastWrite)/triesInMemory)
 				}
 				// Flush an entire trie and restart the counters
-				triedb.Commit(header.Root, true)
+				err, num := triedb.Commit(header.Root, true)
+				if err != nil {
+					log.Info("WriteBlockWithState", "err", err)
+				}
+				bc.commit += int64(num)
 				lastWrite = chosen
 				bc.gcproc = 0
 			}
@@ -1077,7 +1106,8 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 			}
 		}
 	}
-	rawdb.WriteReceipts(batch, block.Hash(), block.NumberU64(), receipts)
+	count = rawdb.WriteReceipts(batch, block.Hash(), block.NumberU64(), receipts)
+	bc.receipts += int64(count)
 
 	// If the total difficulty is higher than our known, add it to the canonical chain
 	// Second clause in the if statement reduces the vulnerability to selfish mining.
@@ -1110,8 +1140,10 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 		}
 	}
 	// Write the positional metadata for transaction/receipt lookups and preimages
-	rawdb.WriteTxLookupEntries(batch, block)
-	rawdb.WritePreimages(batch, block.NumberU64(), state.Preimages())
+	count = rawdb.WriteTxLookupEntries(batch, block)
+	bc.lookupEntries += int64(count)
+	count = rawdb.WritePreimages(batch, block.NumberU64(), state.Preimages())
+	bc.preimages += int64(count)
 
 	status = CanonStatTy
 	if err := batch.Write(); err != nil {
@@ -1346,6 +1378,13 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 
 		cache, _ := bc.stateCache.TrieDB().Size()
 		stats.report(chain, i, cache)
+
+		context := []interface{}{
+			"bodyAndHead", bc.bodyAndHead / 1024 / 1024, "receipts", bc.receipts / 1024, "bodyAndHead", bc.bodyAndHead / 1024,
+			"cap", bc.cap / 1024, "commit", bc.commit / 1024,
+			"lookup", bc.lookupEntries / 1024, "preimages", bc.preimages / 1024, "receiptsM", bc.receipts / 1024 / 1024,
+		}
+		log.Info("Storage statistics", context...)
 	}
 	// Append a single chain head event if we've progressed the chain
 	if lastCanon != nil && bc.CurrentBlock().Hash() == lastCanon.Hash() {
@@ -1493,7 +1532,8 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 		// insert the block in the canonical way, re-writing history
 		bc.insert(newChain[i])
 		// write lookup entries for hash based transaction/receipt searches
-		rawdb.WriteTxLookupEntries(bc.db, newChain[i])
+		count := rawdb.WriteTxLookupEntries(bc.db, newChain[i])
+		bc.lookupEntries += int64(count)
 		addedTxs = append(addedTxs, newChain[i].Transactions()...)
 	}
 	// calculate the difference between deleted and added transactions
@@ -1503,6 +1543,7 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 	batch := bc.db.NewBatch()
 	for _, tx := range diff {
 		rawdb.DeleteTxLookupEntry(batch, tx.Hash())
+
 	}
 	batch.Write()
 

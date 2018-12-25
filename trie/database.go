@@ -23,10 +23,10 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/truechain/truechain-engineering-code/ethdb"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/truechain/truechain-engineering-code/metrics"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/truechain/truechain-engineering-code/ethdb"
+	"github.com/truechain/truechain-engineering-code/metrics"
 )
 
 var (
@@ -502,13 +502,13 @@ func (db *Database) dereference(child common.Hash, parent common.Hash) {
 
 // Cap iteratively flushes old but still referenced trie nodes until the total
 // memory usage goes below the given threshold.
-func (db *Database) Cap(limit common.StorageSize) error {
+func (db *Database) Cap(limit common.StorageSize) (error, int) {
 	// Create a database batch to flush persistent data out. It is important that
 	// outside code doesn't see an inconsistent state (referenced data removed from
 	// memory cache during commit but not yet in persistent storage). This is ensured
 	// by only uncaching existing data when the database write finalizes.
 	db.lock.RLock()
-
+	count := 0
 	nodes, storage, start := len(db.nodes), db.nodesSize, time.Now()
 	batch := db.diskdb.NewBatch()
 
@@ -522,15 +522,16 @@ func (db *Database) Cap(limit common.StorageSize) error {
 	flushPreimages := db.preimagesSize > 4*1024*1024
 	if flushPreimages {
 		for hash, preimage := range db.preimages {
+			count += len(db.secureKey(hash[:])) + len(preimage)
 			if err := batch.Put(db.secureKey(hash[:]), preimage); err != nil {
 				log.Error("Failed to commit preimage from trie database", "err", err)
 				db.lock.RUnlock()
-				return err
+				return err, count
 			}
 			if batch.ValueSize() > ethdb.IdealBatchSize {
 				if err := batch.Write(); err != nil {
 					db.lock.RUnlock()
-					return err
+					return err, count
 				}
 				batch.Reset()
 			}
@@ -541,16 +542,17 @@ func (db *Database) Cap(limit common.StorageSize) error {
 	for size > limit && oldest != (common.Hash{}) {
 		// Fetch the oldest referenced node and push into the batch
 		node := db.nodes[oldest]
+		count += len(oldest[:]) + len(node.rlp())
 		if err := batch.Put(oldest[:], node.rlp()); err != nil {
 			db.lock.RUnlock()
-			return err
+			return err, count
 		}
 		// If we exceeded the ideal batch size, commit and reset
 		if batch.ValueSize() >= ethdb.IdealBatchSize {
 			if err := batch.Write(); err != nil {
 				log.Error("Failed to write flush list to disk", "err", err)
 				db.lock.RUnlock()
-				return err
+				return err, count
 			}
 			batch.Reset()
 		}
@@ -565,7 +567,7 @@ func (db *Database) Cap(limit common.StorageSize) error {
 	if err := batch.Write(); err != nil {
 		log.Error("Failed to write flush list to disk", "err", err)
 		db.lock.RUnlock()
-		return err
+		return err, count
 	}
 	db.lock.RUnlock()
 
@@ -598,49 +600,52 @@ func (db *Database) Cap(limit common.StorageSize) error {
 	log.Debug("Persisted nodes from memory database", "nodes", nodes-len(db.nodes), "size", storage-db.nodesSize, "time", time.Since(start),
 		"flushnodes", db.flushnodes, "flushsize", db.flushsize, "flushtime", db.flushtime, "livenodes", len(db.nodes), "livesize", db.nodesSize)
 
-	return nil
+	return nil, count
 }
 
 // Commit iterates over all the children of a particular node, writes them out
 // to disk, forcefully tearing down all references in both directions.
 //
 // As a side effect, all pre-images accumulated up to this point are also written.
-func (db *Database) Commit(node common.Hash, report bool) error {
+func (db *Database) Commit(node common.Hash, report bool) (error, int) {
 	// Create a database batch to flush persistent data out. It is important that
 	// outside code doesn't see an inconsistent state (referenced data removed from
 	// memory cache during commit but not yet in persistent storage). This is ensured
 	// by only uncaching existing data when the database write finalizes.
 	db.lock.RLock()
-
+	count := 0
 	start := time.Now()
 	batch := db.diskdb.NewBatch()
 
 	// Move all of the accumulated preimages into a write batch
 	for hash, preimage := range db.preimages {
+		count += len(db.secureKey(hash[:])) + len(preimage)
 		if err := batch.Put(db.secureKey(hash[:]), preimage); err != nil {
 			log.Error("Failed to commit preimage from trie database", "err", err)
 			db.lock.RUnlock()
-			return err
+			return err, count
 		}
 		if batch.ValueSize() > ethdb.IdealBatchSize {
 			if err := batch.Write(); err != nil {
-				return err
+				return err, count
 			}
 			batch.Reset()
 		}
 	}
 	// Move the trie itself into the batch, flushing if enough data is accumulated
 	nodes, storage := len(db.nodes), db.nodesSize
-	if err := db.commit(node, batch); err != nil {
+	err, num := db.commit(node, batch)
+	count += num
+	if err != nil {
 		log.Error("Failed to commit trie from trie database", "err", err)
 		db.lock.RUnlock()
-		return err
+		return err, count
 	}
 	// Write batch ready, unlock for readers during persistence
 	if err := batch.Write(); err != nil {
 		log.Error("Failed to write trie to disk", "err", err)
 		db.lock.RUnlock()
-		return err
+		return err, count
 	}
 	db.lock.RUnlock()
 
@@ -668,32 +673,36 @@ func (db *Database) Commit(node common.Hash, report bool) error {
 	db.gcnodes, db.gcsize, db.gctime = 0, 0, 0
 	db.flushnodes, db.flushsize, db.flushtime = 0, 0, 0
 
-	return nil
+	return nil, count
 }
 
 // commit is the private locked version of Commit.
-func (db *Database) commit(hash common.Hash, batch ethdb.Batch) error {
+func (db *Database) commit(hash common.Hash, batch ethdb.Batch) (error, int) {
 	// If the node does not exist, it's a previously committed node
 	node, ok := db.nodes[hash]
+	count := 0
 	if !ok {
-		return nil
+		return nil, count
 	}
 	for _, child := range node.childs() {
-		if err := db.commit(child, batch); err != nil {
-			return err
+		err, num := db.commit(child, batch)
+		count += num
+		if err != nil {
+			return err, count
 		}
 	}
+	count += len(hash[:]) + len(node.rlp())
 	if err := batch.Put(hash[:], node.rlp()); err != nil {
-		return err
+		return err, count
 	}
 	// If we've reached an optimal batch size, commit and start over
 	if batch.ValueSize() >= ethdb.IdealBatchSize {
 		if err := batch.Write(); err != nil {
-			return err
+			return err, count
 		}
 		batch.Reset()
 	}
-	return nil
+	return nil, count
 }
 
 // uncache is the post-processing step of a commit operation where the already
