@@ -1378,13 +1378,14 @@ func (bc *BlockChain) insertChain(chain types.Blocks) (int, []interface{}, []*ty
 
 		cache, _ := bc.stateCache.TrieDB().Size()
 		stats.report(chain, i, cache)
-
-		context := []interface{}{
-			"bodyAndHead", bc.bodyAndHead / 1024 / 1024, "receipts", bc.receipts / 1024, "bodyAndHead", bc.bodyAndHead / 1024,
-			"cap", bc.cap / 1024, "commit", bc.commit / 1024,
-			"lookup", bc.lookupEntries / 1024, "preimages", bc.preimages / 1024, "receiptsM", bc.receipts / 1024 / 1024,
+		if i == len(chain)-1 {
+			context := []interface{}{
+				"bodyAndHead", bc.bodyAndHead / 1024 / 1024, "receipts", bc.receipts / 1024, "bodyAndHead", bc.bodyAndHead / 1024,
+				"cap", bc.cap / 1024, "commit", bc.commit / 1024,
+				"lookup", bc.lookupEntries / 1024, "preimages", bc.preimages / 1024, "receiptsM", bc.receipts / 1024 / 1024,
+			}
+			log.Info("Storage statistics", context...)
 		}
-		log.Info("Storage statistics", context...)
 	}
 	// Append a single chain head event if we've progressed the chain
 	if lastCanon != nil && bc.CurrentBlock().Hash() == lastCanon.Hash() {
