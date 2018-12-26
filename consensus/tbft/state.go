@@ -19,13 +19,6 @@ import (
 )
 
 //-----------------------------------------------------------------------------
-// Config
-
-const (
-	proposalHeartbeatIntervalSeconds = 2
-)
-
-//-----------------------------------------------------------------------------
 // Errors
 
 var (
@@ -104,7 +97,7 @@ type ConsensusState struct {
 	done chan struct{}
 
 	// synchronous pubsub between consensus state and reactor.
-	// state only emits EventNewRoundStep, EventVote and EventProposalHeartbeat
+	// state only emits EventNewRoundStep and EventVote
 	evsw ttypes.EventSwitch
 }
 
@@ -548,6 +541,9 @@ func (cs *ConsensusState) handleMsg(mi msgInfo) {
 		// will not cause transition.
 		// once proposal is set, we can receive block parts
 		err = cs.setProposal(msg.Proposal)
+		if err != nil {
+			log.Warn("SetProposal","Warning",err)
+		}
 	case *BlockPartMessage:
 		// if the proposal is complete, we'll enterPrevote or tryFinalizeCommit
 		_, err = cs.addProposalBlockPart(msg, peerID)
@@ -670,36 +666,7 @@ func (cs *ConsensusState) enterNewRound(height uint64, round int) {
 
 	cs.eventBus.PublishEventNewRound(cs.RoundStateEvent())
 	// cs.metrics.Rounds.Set(float64(round))
-	cs.tryEnterProposal(height, round, 0)
-}
-
-func (cs *ConsensusState) proposalHeartbeat(height uint64, round int) {
-	counter := uint(0)
-	addr := cs.privValidator.GetAddress()
-	valIndex, _ := cs.Validators.GetByAddress(addr)
-	chainID := cs.state.GetChainID()
-	for {
-		if !cs.IsRunning() {
-			return
-		}
-		rs := cs.GetRoundState()
-		// if we've already moved on, no need to send more heartbeats
-		if rs.Step > ttypes.RoundStepNewRound || int(rs.Round) > round || rs.Height > height {
-			return
-		}
-		heartbeat := &ttypes.Heartbeat{
-			Height:           rs.Height,
-			Round:            rs.Round,
-			Sequence:         counter,
-			ValidatorAddress: addr,
-			ValidatorIndex:   uint(valIndex),
-		}
-		cs.privValidator.SignHeartbeat(chainID, heartbeat)
-		cs.eventBus.PublishEventProposalHeartbeat(ttypes.EventDataProposalHeartbeat{heartbeat})
-		cs.evsw.FireEvent(ttypes.EventProposalHeartbeat, heartbeat)
-		counter++
-		time.Sleep(proposalHeartbeatIntervalSeconds * time.Second)
-	}
+	cs.tryEnterProposal(height, round, 1)
 }
 
 // Enter (CreateEmptyBlocks): from enterNewRound(height,round)
@@ -762,8 +729,7 @@ func (cs *ConsensusState) tryEnterProposal(height uint64, round int, wait uint) 
 	if empty && cs.config.CreateEmptyBlocks && round == 0 && cs.config.WaitForEmptyBlocks(int(wait)) {
 		dd := cs.config.EmptyBlocksIntervalForPer(int(wait))
 		wait ++
-		cs.scheduleTimeoutWithWait(timeoutInfo{dd, height, uint(round), ttypes.RoundStepNewRound, wait})	
-		go cs.proposalHeartbeat(height, round)
+		cs.scheduleTimeoutWithWait(timeoutInfo{dd, height, uint(round), ttypes.RoundStepNewRound, wait})
 	} else {
 		cs.enterPropose(height, round, block, blockParts)
 	}
@@ -1273,7 +1239,7 @@ func (cs *ConsensusState) finalizeCommit(height uint64) {
 func (cs *ConsensusState) defaultSetProposal(proposal *ttypes.Proposal) error {
 	// Already have one
 	// TODO: possibly catch double proposals
-	if cs.Proposal != nil {
+	if cs.Proposal != nil || proposal == nil{
 		return nil
 	}
 
@@ -1294,10 +1260,10 @@ func (cs *ConsensusState) defaultSetProposal(proposal *ttypes.Proposal) error {
 	}
 
 	// Verify signature
-	// if !cs.Validators.GetProposer().PubKey.VerifyBytes(proposal.SignBytes(cs.state.GetChainID()),
-	// 	 proposal.Signature) {
-	// 	return ErrInvalidProposalSignature
-	// }
+	if !cs.Validators.GetProposer().PubKey.VerifyBytes(proposal.SignBytes(cs.state.GetChainID()),
+		 proposal.Signature) {
+		return ErrInvalidProposalSignature
+	}
 
 	cs.Proposal = proposal
 	cs.ProposalBlockParts = ttypes.NewPartSetFromHeader(proposal.BlockPartsHeader)

@@ -51,13 +51,13 @@ var (
 )
 
 const (
-	bodyCacheLimit      = 256
-	blockCacheLimit     = 256
-	maxFutureBlocks     = 256
-	maxTimeFutureBlocks = 30
-	badBlockLimit       = 10
-	triesInMemory       = 128
-
+	bodyCacheLimit         = 256
+	blockCacheLimit        = 256
+	maxFutureBlocks        = 256
+	maxTimeFutureBlocks    = 30
+	badBlockLimit          = 10
+	triesInMemory          = 128
+	fastBlockStateInternal = 6
 	// BlockChainVersion ensures that an incompatible database forces a resync from scratch.
 	BlockChainVersion = 3
 )
@@ -650,7 +650,7 @@ func (bc *BlockChain) HasState(hash common.Hash) bool {
 // or CurrentFastBlock number  > the number of fb
 func (bc *BlockChain) VerifyHasState(fb *types.Block) bool {
 	_, err := bc.stateCache.OpenTrie(fb.Root())
-	if err != nil && bc.CurrentBlock().NumberU64() > fb.NumberU64() {
+	if err != nil && bc.CurrentBlock().NumberU64() > fb.NumberU64()+uint64(fastBlockStateInternal) {
 		return true
 	}
 	return err == nil
@@ -1007,26 +1007,14 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 	bc.wg.Add(1)
 	defer bc.wg.Done()
 
-	// Calculate the total difficulty of the block
-	//ptd := bc.GetTd(block.ParentHash(), block.NumberU64()-1)
-	//if ptd == nil {
-	//	return NonStatTy, consensus.ErrUnknownAncestor
-	//}
 	// Make sure no inconsistent state is leaked during insertion
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
 	currentBlock := bc.CurrentBlock()
-	//localTd := bc.GetTd(currentBlock.Hash(), currentBlock.NumberU64())
-	//externTd := new(big.Int).Add(block.Difficulty(), ptd)
 
-	// Irrelevant of the canonical status, write the block itself to the database
-	//if err := bc.hc.WriteTd(block.Hash(), block.NumberU64(), externTd); err != nil {
-	//	return NonStatTy, err
-	//}
 	// Write other block data using a batch.
-	batch := bc.db.NewBatch()
-	count := rawdb.WriteBlock(batch, block)
+	count := rawdb.WriteBlock(bc.db, block)
 	bc.bodyAndHead += int64(count)
 
 	if block.SnailNumber().Int64() != 0 {
@@ -1038,7 +1026,7 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 			SnailNumber: block.SnailNumber(),
 		}
 		//insert BlockReward to db
-		rawdb.WriteBlockReward(batch, br)
+		rawdb.WriteBlockReward(bc.db, br)
 		rawdb.WriteHeadRewardNumber(bc.db, block.SnailNumber().Uint64())
 
 		bc.currentReward.Store(br)
@@ -1106,33 +1094,9 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 			}
 		}
 	}
+	batch := bc.db.NewBatch()
 	count = rawdb.WriteReceipts(batch, block.Hash(), block.NumberU64(), receipts)
 	bc.receipts += int64(count)
-
-	// If the total difficulty is higher than our known, add it to the canonical chain
-	// Second clause in the if statement reduces the vulnerability to selfish mining.
-	// Please refer to http://www.cs.cornell.edu/~ie53/publications/btcProcFC.pdf
-	//reorg := externTd.Cmp(localTd) > 0
-	//currentBlock = bc.CurrentBlock()
-	//if !reorg && externTd.Cmp(localTd) == 0 {
-	//		Split same-difficulty blocks by number, then at random
-	//	reorg = block.NumberU64() < currentBlock.NumberU64() || (block.NumberU64() == currentBlock.NumberU64() && mrand.Float64() < 0.5)
-	//}
-	//if reorg {
-	//	// Reorganise the chain if the parent is not the head block
-	//	if block.ParentHash() != currentBlock.Hash() {
-	//		if err := bc.reorg(currentBlock, block); err != nil {
-	//			return NonStatTy, err
-	//		}
-	//	}
-	//	// Write the positional metadata for transaction/receipt lookups and preimages
-	//	rawdb.WriteTxLookupEntries(batch, block)
-	//	rawdb.WritePreimages(batch, block.NumberU64(), state.Preimages())
-	//
-	//	status = CanonStatTy
-	//} else {
-	//	status = SideStatTy
-	//}
 
 	if block.ParentHash() != currentBlock.Hash() {
 		if err := bc.reorg(currentBlock, block); err != nil {
@@ -1150,10 +1114,7 @@ func (bc *BlockChain) WriteBlockWithState(block *types.Block, receipts []*types.
 		return NonStatTy, err
 	}
 
-	// Set new head.
-	if status == CanonStatTy {
-		bc.insert(block)
-	}
+	bc.insert(block)
 	bc.futureBlocks.Remove(block.Hash())
 	return status, err
 }
@@ -1544,7 +1505,6 @@ func (bc *BlockChain) reorg(oldBlock, newBlock *types.Block) error {
 	batch := bc.db.NewBatch()
 	for _, tx := range diff {
 		rawdb.DeleteTxLookupEntry(batch, tx.Hash())
-
 	}
 	batch.Write()
 
