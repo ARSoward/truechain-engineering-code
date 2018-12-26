@@ -26,9 +26,9 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/truechain/truechain-engineering-code/core/types"
 	etrue "github.com/truechain/truechain-engineering-code/etrue/types"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/truechain/truechain-engineering-code/metrics"
 	"gopkg.in/karalabe/cookiejar.v2/collections/prque"
 )
@@ -767,9 +767,9 @@ func (q *queue) DeliverBodies(id string, txLists [][]*types.Transaction, signs [
 			return errInvalidChain
 		}
 
-		for _ , sign := range signs[index]{
-			log.Debug("DeliverBodies>>>>","sign.FastHeight",sign.FastHeight,"header",header.Number,"sign.FastHash()",sign.FastHash,"header.Hash()",header.Hash())
-			if sign.FastHeight.Cmp(header.Number ) != 0 ||  sign.FastHash != header.Hash() {
+		for _, sign := range signs[index] {
+			log.Debug("DeliverBodies>>>>", "sign.FastHeight", sign.FastHeight, "header", header.Number, "sign.FastHash()", sign.FastHash, "header.Hash()", header.Hash())
+			if sign.FastHeight.Cmp(header.Number) != 0 {
 				log.Error("errInvalidBody>>>>>>>")
 				return errInvalidChain
 			}
