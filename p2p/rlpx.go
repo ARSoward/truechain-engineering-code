@@ -68,6 +68,8 @@ const (
 	// This is shorter than the usual timeout because we don't want
 	// to wait if the connection is known to be bad anyway.
 	discWriteTimeout = 1 * time.Second
+
+	RLPXVersion = 5
 )
 
 // errPlainMessageTooLarge is returned if a decompressed message length exceeds
@@ -338,14 +340,14 @@ func (h *encHandshake) makeAuthMsg(prv *ecdsa.PrivateKey) (*authMsgV4, error) {
 	copy(msg.Signature[:], signature)
 	copy(msg.InitiatorPubkey[:], crypto.FromECDSAPub(&prv.PublicKey)[1:])
 	copy(msg.Nonce[:], h.initNonce)
-	msg.Version = 5
+	msg.Version = RLPXVersion
 	return msg, nil
 }
 
 func (h *encHandshake) handleAuthResp(msg *authRespV4) (err error) {
 	h.respNonce = msg.Nonce[:]
 	h.remoteRandomPub, err = importPublicKey(msg.RandomPubkey[:])
-	if msg.Version != 5 {
+	if msg.Version != RLPXVersion {
 		return fmt.Errorf("enc AuthResp %d version error", msg.Version)
 	}
 	return err
@@ -382,7 +384,7 @@ func receiverEncHandshake(conn io.ReadWriter, prv *ecdsa.PrivateKey) (s secrets,
 	if _, err = conn.Write(authRespPacket); err != nil {
 		return s, err
 	}
-	if authMsg.Version != 5 {
+	if authMsg.Version != RLPXVersion {
 		return s, fmt.Errorf("Enc handshake %d version error", authMsg.Version)
 	}
 	return h.secrets(authPacket, authRespPacket)
@@ -431,7 +433,7 @@ func (h *encHandshake) makeAuthResp() (msg *authRespV4, err error) {
 	msg = new(authRespV4)
 	copy(msg.Nonce[:], h.respNonce)
 	copy(msg.RandomPubkey[:], exportPubkey(&h.randomPrivKey.PublicKey))
-	msg.Version = 5
+	msg.Version = RLPXVersion
 	return msg, nil
 }
 
@@ -450,7 +452,7 @@ func (msg *authMsgV4) decodePlain(input []byte) {
 	n += shaLen // skip sha3(initiator-ephemeral-pubk)
 	n += copy(msg.InitiatorPubkey[:], input[n:])
 	copy(msg.Nonce[:], input[n:])
-	msg.Version = 5
+	msg.Version = RLPXVersion
 	msg.gotPlain = true
 }
 
@@ -464,7 +466,7 @@ func (msg *authRespV4) sealPlain(hs *encHandshake) ([]byte, error) {
 func (msg *authRespV4) decodePlain(input []byte) {
 	n := copy(msg.RandomPubkey[:], input)
 	copy(msg.Nonce[:], input[n:])
-	msg.Version = 5
+	msg.Version = RLPXVersion
 }
 
 var padSpace = make([]byte, 300)
