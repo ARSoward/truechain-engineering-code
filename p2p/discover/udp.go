@@ -599,11 +599,11 @@ func (req *ping) handle(t *udp, from *net.UDPAddr, fromID NodeID, mac []byte) er
 	if expired(req.Expiration) {
 		return errExpired
 	}
-	//log.Info("handle", "version", req.Version)
-	//if req.Version != 5 {
-	//	return errVersion
-	//}
-	t.send(from, pongPacket, &pong{
+	log.Info("handle", "version", req.Version)
+	if req.Version != 5 {
+		return errVersion
+	}
+	_, _ = t.send(from, pongPacket, &pong{
 		To:         makeEndpoint(from, req.From.TCP),
 		ReplyTok:   mac,
 		Expiration: uint64(time.Now().Add(expiration).Unix()),
@@ -618,7 +618,7 @@ func (req *ping) handle(t *udp, from *net.UDPAddr, fromID NodeID, mac []byte) er
 	} else {
 		t.addThroughPing(n)
 	}
-	t.db.updateLastPingReceived(fromID, time.Now())
+	_ = t.db.updateLastPingReceived(fromID, time.Now())
 	return nil
 }
 
