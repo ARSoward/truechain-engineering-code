@@ -286,7 +286,7 @@ func (s *dialstate) taskDone(t task, now time.Time) {
 	case *discoverTask:
 		s.lookupRunning = false
 		s.lookupBuf = append(s.lookupBuf, t.results...)
-		log.Trace("Dial task done", "results", len(t.results), "lookupBuf", s.lookupBuf)
+		log.Trace("Dial task done", "results", t.results, "lookupBuf", s.lookupBuf)
 	}
 }
 
