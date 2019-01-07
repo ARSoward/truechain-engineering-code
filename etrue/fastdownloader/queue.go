@@ -653,6 +653,7 @@ func (q *queue) expire(timeout time.Duration, pendPool map[string]*etrue.FetchRe
 			}
 			for _, header := range request.Fheaders {
 				taskQueue.Push(header, -float32(header.Number.Uint64()))
+				log.Info("Expire fast chain", "num", header.Number, "timeout", timeout, "hash", header.Hash(), "peer", id)
 			}
 			// Add the peer to the expiry report along the the number of failed requests
 			expiries[id] = len(request.Fheaders)
@@ -756,7 +757,7 @@ func (q *queue) DeliverHeaders(id string, headers []*types.Header, headerProcCh 
 // DeliverBodies injects a block body retrieval response into the results queue.
 // The method returns the number of blocks bodies accepted from the delivery and
 // also wakes any threads waiting for data delivery.
-func (q *queue) DeliverBodies(id string, txLists [][]*types.Transaction, signs [][]*types.PbftSign) (int, error) {
+func (q *queue) DeliverBodies(id string, txLists [][]*types.Transaction, signs [][]*types.PbftSign,infos []*types.SwitchInfos) (int, error) {
 	q.lock.Lock()
 	defer q.lock.Unlock()
 
@@ -769,7 +770,7 @@ func (q *queue) DeliverBodies(id string, txLists [][]*types.Transaction, signs [
 
 		for _, sign := range signs[index] {
 			log.Debug("DeliverBodies>>>>", "sign.FastHeight", sign.FastHeight, "header", header.Number, "sign.FastHash()", sign.FastHash, "header.Hash()", header.Hash())
-			if sign.FastHeight.Cmp(header.Number) != 0 {
+			if sign.FastHeight.Cmp(header.Number) != 0 || sign.FastHash != header.Hash() {
 				log.Error("errInvalidBody>>>>>>>")
 				return errInvalidChain
 			}
@@ -777,6 +778,7 @@ func (q *queue) DeliverBodies(id string, txLists [][]*types.Transaction, signs [
 
 		result.Transactions = txLists[index]
 		result.Signs = signs[index]
+		result.Infos = infos[index]
 		return nil
 	}
 	return q.deliver(id, q.blockTaskPool, q.blockTaskQueue, q.blockPendPool, q.blockDonePool, bodyReqTimer, len(txLists), reconstruct)

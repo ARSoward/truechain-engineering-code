@@ -6,12 +6,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
-	config "github.com/truechain/truechain-engineering-code/params"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	tcrypto "github.com/truechain/truechain-engineering-code/consensus/tbft/crypto"
 	ttypes "github.com/truechain/truechain-engineering-code/consensus/tbft/types"
 	"github.com/truechain/truechain-engineering-code/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/log"
+	config "github.com/truechain/truechain-engineering-code/params"
 	"math/big"
 	"path/filepath"
 	"strconv"
@@ -39,7 +39,7 @@ func getID() *big.Int {
 
 var IDCache = make(map[string]*big.Int)
 
-func IdCacheInit() {
+func IDCacheInit() {
 	lock = new(sync.Mutex)
 
 	IDCache["Agent1"] = big.NewInt(1)
@@ -64,14 +64,14 @@ func IDAdd(agent string) {
 	IDCache[agent] = new(big.Int).Add(tmp, big.NewInt(1))
 }
 
-func (pap *PbftAgentProxyImp) FetchFastBlock(committeeID *big.Int) (*types.Block, error) {
+func (pap *PbftAgentProxyImp) FetchFastBlock(committeeID *big.Int, infos *types.SwitchInfos) (*types.Block, error) {
 	header := new(types.Header)
 	header.Number = getIDForCache(pap.Name) //getID()
 	fmt.Println(pap.Name, header.Number)
 	header.Time = big.NewInt(time.Now().Unix())
 	println("[AGENT]", pap.Name, "++++++++", "FetchFastBlock", "Number:", header.Number.Uint64())
 	//time.Sleep(time.Second * 5)
-	return types.NewBlock(header, nil, nil, nil), nil
+	return types.NewBlock(header, nil, nil, nil, infos), nil
 }
 
 func (pap *PbftAgentProxyImp) GetCurrentHeight() *big.Int {
@@ -105,7 +105,7 @@ func (pap *PbftAgentProxyImp) GenerateSignWithVote(fb *types.Block, vote uint) (
 	return voteSign, err
 }
 
-func (pap *PbftAgentProxyImp) VerifyFastBlock(block *types.Block) (*types.PbftSign, error) {
+func (pap *PbftAgentProxyImp) VerifyFastBlock(block *types.Block, sign bool) (*types.PbftSign, error) {
 	//if rand.Intn(100) > 30 {
 	//	return types.ErrHeightNotYet
 	//}
@@ -168,7 +168,7 @@ func GetPub(priv *ecdsa.PrivateKey) *ecdsa.PublicKey {
 
 func TestPbftRunForOne(t *testing.T) {
 	//log.OpenLogDebug(4)
-	IdCacheInit()
+	IDCacheInit()
 	start := make(chan int)
 	pr := getPrivateKey(0)
 	agent1 := NewPbftAgent("Agent1")
@@ -184,9 +184,10 @@ func TestPbftRunForOne(t *testing.T) {
 	n.Notify(c1.Id, Start)
 	<-start
 }
+
 func TestPbftRunFor2(t *testing.T) {
 	//log.OpenLogDebug(3)
-	IdCacheInit()
+	IDCacheInit()
 	start := make(chan int)
 	pr1 := getPrivateKey(0)
 	pr2 := getPrivateKey(1)
@@ -252,9 +253,10 @@ func TestPbftRunFor2(t *testing.T) {
 
 	<-start
 }
+
 func TestPbftRunFor4(t *testing.T) {
-	////log.OpenLogDebug(4)
-	IdCacheInit()
+	//log.OpenLogDebug(4)
+	IDCacheInit()
 	start := make(chan int)
 	pr1 := getPrivateKey(0)
 	pr2 := getPrivateKey(1)
@@ -371,9 +373,10 @@ func TestPbftRunFor4(t *testing.T) {
 
 	<-start
 }
+
 func TestPbftRunFor4AndChange(t *testing.T) {
 	//log.OpenLogDebug(3)
-	IdCacheInit()
+	IDCacheInit()
 	start := make(chan int)
 	pr1 := getPrivateKey(0)
 	pr2 := getPrivateKey(1)
@@ -386,7 +389,7 @@ func TestPbftRunFor4AndChange(t *testing.T) {
 	agent4 := NewPbftAgent("Agent4")
 
 	config1 := new(config.TbftConfig)
-	*config1 = *config.DefaultConfig()
+	*config1 = *config.TestConfig()
 	p2p1 := new(config.P2PConfig)
 	*p2p1 = *config1.P2P
 	p2p1.ListenAddress1 = "tcp://127.0.0.1:28890"
@@ -402,7 +405,7 @@ func TestPbftRunFor4AndChange(t *testing.T) {
 	n1.Start()
 
 	config2 := new(config.TbftConfig)
-	*config2 = *config.DefaultConfig()
+	*config2 = *config.TestConfig()
 	p2p2 := new(config.P2PConfig)
 	*p2p2 = *config2.P2P
 	p2p2.ListenAddress1 = "tcp://127.0.0.1:28893"
@@ -418,7 +421,7 @@ func TestPbftRunFor4AndChange(t *testing.T) {
 	n2.Start()
 
 	config3 := new(config.TbftConfig)
-	*config3 = *config.DefaultConfig()
+	*config3 = *config.TestConfig()
 	p2p3 := new(config.P2PConfig)
 	*p2p3 = *config3.P2P
 	p2p3.ListenAddress1 = "tcp://127.0.0.1:28895"
@@ -434,7 +437,7 @@ func TestPbftRunFor4AndChange(t *testing.T) {
 	n3.Start()
 
 	config4 := new(config.TbftConfig)
-	*config4 = *config.DefaultConfig()
+	*config4 = *config.TestConfig()
 	p2p4 := new(config.P2PConfig)
 	*p2p4 = *config4.P2P
 	p2p4.ListenAddress1 = "tcp://127.0.0.1:28897"
@@ -470,7 +473,7 @@ func TestPbftRunFor4AndChange(t *testing.T) {
 	cn = append(cn, &types.CommitteeNode{IP: "127.0.0.1", Port: 28890, Port2: 28891, Coinbase: m1.Coinbase, Publickey: crypto.FromECDSAPub(m1.Publickey)})
 	cn = append(cn, &types.CommitteeNode{IP: "127.0.0.1", Port: 28893, Port2: 28894, Coinbase: m2.Coinbase, Publickey: crypto.FromECDSAPub(m2.Publickey)})
 	cn = append(cn, &types.CommitteeNode{IP: "127.0.0.1", Port: 28895, Port2: 28896, Coinbase: m3.Coinbase, Publickey: crypto.FromECDSAPub(m3.Publickey)})
-	cn = append(cn, &types.CommitteeNode{IP: "127.0.0.1", Port: 28897, Port2: 28898, Coinbase: m4.Coinbase, Publickey: crypto.FromECDSAPub(m4.Publickey)})
+	cn = append(cn, &types.CommitteeNode{IP: "127.0.0.1", Port: 28897, Port2: 28899, Coinbase: m4.Coinbase, Publickey: crypto.FromECDSAPub(m4.Publickey)})
 
 	n1.PutCommittee(c1)
 	n1.PutNodes(common.Big1, cn)
@@ -524,7 +527,7 @@ func TestPbftRunFor4AndChange(t *testing.T) {
 
 func TestPbftRunFor5(t *testing.T) {
 	//log.OpenLogDebug(4)
-	IdCacheInit()
+	IDCacheInit()
 
 	start := make(chan int)
 	pr1 := getPrivateKey(0)
@@ -678,7 +681,7 @@ func TestPbftRunFor5(t *testing.T) {
 
 func TestRunPbft1(t *testing.T) {
 	//log.OpenLogDebug(4)
-	IdCacheInit()
+	IDCacheInit()
 	start := make(chan int)
 	pr1 := getPrivateKey(0)
 	pr2 := getPrivateKey(1)
@@ -735,7 +738,7 @@ func TestRunPbft1(t *testing.T) {
 
 func TestRunPbft2(t *testing.T) {
 	//log.OpenLogDebug(4)
-	IdCacheInit()
+	IDCacheInit()
 	start := make(chan int)
 	pr1 := getPrivateKey(0)
 	pr2 := getPrivateKey(1)
@@ -793,7 +796,7 @@ func TestRunPbft2(t *testing.T) {
 
 func TestRunPbft3(t *testing.T) {
 	//log.OpenLogDebug(4)
-	IdCacheInit()
+	IDCacheInit()
 	start := make(chan int)
 	pr1 := getPrivateKey(0)
 	pr2 := getPrivateKey(1)
@@ -851,7 +854,7 @@ func TestRunPbft3(t *testing.T) {
 
 func TestRunPbft4(t *testing.T) {
 	//log.OpenLogDebug(4)
-	IdCacheInit()
+	IDCacheInit()
 	start := make(chan int)
 	pr1 := getPrivateKey(0)
 	pr2 := getPrivateKey(1)
@@ -908,16 +911,16 @@ func TestRunPbft4(t *testing.T) {
 }
 
 func TestAddVote(t *testing.T) {
-	IdCacheInit()
+	IDCacheInit()
 	const privCount int = 4
 	var privs [privCount]*ecdsa.PrivateKey
 	vals := make([]*ttypes.Validator, 0, 0)
 	vPrivValidator := make([]ttypes.PrivValidator, 0, 0)
 
-	var chainID_ string = "9999"
-	var height_ uint64 = 1
-	var round_ int = 0
-	var type_ byte = ttypes.VoteTypePrevote
+	var chainID = "9999"
+	var height uint64 = 1
+	var round = 0
+	var typeB = ttypes.VoteTypePrevote
 
 	for i := 0; i < privCount; i++ {
 		privs[i] = getPrivateKey(i)
@@ -928,11 +931,11 @@ func TestAddVote(t *testing.T) {
 		vals = append(vals, v)
 	}
 	vset := ttypes.NewValidatorSet(vals)
-	vVoteSet := ttypes.NewVoteSet(chainID_, height_, round_, type_, vset)
+	vVoteSet := ttypes.NewVoteSet(chainID, height, round, typeB, vset)
 	// make block
 	agent := NewPbftAgent("Agent1")
 	cid := big.NewInt(1)
-	block, _ := agent.FetchFastBlock(cid)
+	block, _ := agent.FetchFastBlock(cid, nil)
 	hash := block.Hash()
 	fmt.Println(common.ToHex(hash[:]))
 	ps, _ := ttypes.MakePartSet(65535, block)
@@ -940,9 +943,9 @@ func TestAddVote(t *testing.T) {
 	for i, v := range vPrivValidator {
 		var vote1 *ttypes.Vote
 		if i == 3 {
-			vote1 = signAddVote(v, vset, vVoteSet, height_, chainID_, uint(round_), type_, nil, ttypes.PartSetHeader{}, nil)
+			vote1 = signAddVote(v, vset, vVoteSet, height, chainID, uint(round), typeB, nil, ttypes.PartSetHeader{}, nil)
 		} else {
-			vote1 = signAddVote(v, vset, vVoteSet, height_, chainID_, uint(round_), type_, hash[:], ps.Header(), nil)
+			vote1 = signAddVote(v, vset, vVoteSet, height, chainID, uint(round), typeB, hash[:], ps.Header(), nil)
 		}
 		if vote1 != nil {
 			vVoteSet.AddVote(vote1)
@@ -957,8 +960,8 @@ func TestAddVote(t *testing.T) {
 
 }
 
-func signVote(privV ttypes.PrivValidator, vset *ttypes.ValidatorSet, height uint64, chainid_ string,
-	round uint, type_ byte, hash []byte, header ttypes.PartSetHeader) (*ttypes.Vote, error) {
+func signVote(privV ttypes.PrivValidator, vset *ttypes.ValidatorSet, height uint64, chainid string,
+	round uint, typeB byte, hash []byte, header ttypes.PartSetHeader) (*ttypes.Vote, error) {
 	addr := privV.GetAddress()
 	valIndex, _ := vset.GetByAddress(addr)
 	vote := &ttypes.Vote{
@@ -967,17 +970,18 @@ func signVote(privV ttypes.PrivValidator, vset *ttypes.ValidatorSet, height uint
 		Height:           height,
 		Round:            round,
 		Timestamp:        time.Now().UTC(),
-		Type:             type_,
+		Type:             typeB,
 		BlockID:          ttypes.BlockID{hash, header},
 	}
 
-	err := privV.SignVote(chainid_, vote)
+	err := privV.SignVote(chainid, vote)
 	return vote, err
 }
-func signAddVote(privV ttypes.PrivValidator, vset *ttypes.ValidatorSet, voteset *ttypes.VoteSet, height uint64, chainid_ string,
-	round uint, type_ byte, hash []byte, header ttypes.PartSetHeader, keepsign *ttypes.KeepBlockSign) *ttypes.Vote {
 
-	vote, err := signVote(privV, vset, height, chainid_, round, type_, hash, header)
+func signAddVote(privV ttypes.PrivValidator, vset *ttypes.ValidatorSet, voteset *ttypes.VoteSet, height uint64, chainid string,
+	round uint, typeB byte, hash []byte, header ttypes.PartSetHeader, keepsign *ttypes.KeepBlockSign) *ttypes.Vote {
+
+	vote, err := signVote(privV, vset, height, chainid, round, typeB, hash, header)
 	if err == nil {
 		// if hash != nil && keepsign == nil {
 		// 	if prevote := voteset.Prevotes(int(round)); prevote != nil {
@@ -995,12 +999,14 @@ func signAddVote(privV ttypes.PrivValidator, vset *ttypes.ValidatorSet, voteset 
 	fmt.Println("Error signing vote", "height", height, "round", round, "vote", vote, "err", err)
 	return nil
 }
+
 func TestVote(t *testing.T) {
 	bid := makeBlockID(nil, ttypes.PartSetHeader{})
 	fmt.Println(bid.String())
 	aa := len(bid.Hash)
-	fmt.Println("aa:",aa)
+	fmt.Println("aa:", aa)
 }
+
 func makeBlockID(hash []byte, header ttypes.PartSetHeader) ttypes.BlockID {
 	blockid := ttypes.BlockID{hash, header}
 	fmt.Println(blockid.String())
@@ -1009,19 +1015,19 @@ func makeBlockID(hash []byte, header ttypes.PartSetHeader) ttypes.BlockID {
 
 func TestTock(t *testing.T) {
 	taskTimeOut := 3
-	var d time.Duration = time.Duration(taskTimeOut) * time.Second
+	var d = time.Duration(taskTimeOut) * time.Second
 	ttock := NewTimeoutTicker("ttock")
 	ttock.Start()
 
 	ttock.ScheduleTimeout(timeoutInfo{d, 1, uint(0), 0, 1})
 	go TimeoutRoutine(&ttock)
 
-	time.Sleep(30 *time.Second)
+	time.Sleep(30 * time.Second)
 	ttock.Stop()
 }
 
 func TimeoutRoutine(tt *TimeoutTicker) {
-	var pos uint = 0
+	var pos uint
 	for {
 		if pos >= 30 {
 			return
@@ -1029,44 +1035,63 @@ func TimeoutRoutine(tt *TimeoutTicker) {
 		select {
 		case <-(*tt).Chan(): // tockChan:
 			pos++
-			fmt.Println(time.Now(),pos)
+			fmt.Println(time.Now(), pos)
 		}
 	}
 
 }
+
 func TestPrivKey(t *testing.T) {
-	priv1,_ := crypto.HexToECDSA("2ee9b9082e3eb19378d478f450e0e818e94cf7e3bf13ad5dd657ef2a35fbb0a8")
+
+	//f05acdc37795769c2afc87c9dac7b22d45c2ae36038d0b70644eebd3aa03e31b
+	//70e7a8e57012a04a8b7dbecda7de6af7e2134a2be237cf6049d9bd846362dccc
+	//014e09b2406ad03c0539f5f0a0af075b8e70098486f45d3aa1601e00a8d54a93
+	//9177485bfecacf47d2f9f63a0c29cc0eae299c955283ce1fbb2060fee041c040
+	//d0c3b151031a8a90841dc18463d838cc8db29a10e7889b6991be0a3088702ca7
+	//c007a7302da54279edc472174a140b0093580d7d73cdbbb205654ea79f606c95
+
+	priv1, _ := crypto.HexToECDSA("9177485bfecacf47d2f9f63a0c29cc0eae299c955283ce1fbb2060fee041c040")
 	tPriv1 := tcrypto.PrivKeyTrue(*priv1)
 	addr1 := tPriv1.PubKey().Address()
 	id1 := hex.EncodeToString(addr1[:])
-	fmt.Println("id1",id1)
+	fmt.Println("id1", id1)
 
-	priv2,_ := crypto.HexToECDSA("1bc73ab677ed9c3518417339bb5716e32fbc56e888c98d2e63e190dd51ca7eda")
+	priv2, _ := crypto.HexToECDSA("d0c3b151031a8a90841dc18463d838cc8db29a10e7889b6991be0a3088702ca7")
 	tPriv2 := tcrypto.PrivKeyTrue(*priv2)
 	addr2 := tPriv2.PubKey().Address()
 	id2 := hex.EncodeToString(addr2[:])
-	fmt.Println("id2",id2)
+	fmt.Println("id2", id2)
 
-	priv3,_ := crypto.HexToECDSA("d0c3b151031a8a90841dc18463d838cc8db29a10e7889b6991be0a3088702ca7")
+	priv3, _ := crypto.HexToECDSA("c007a7302da54279edc472174a140b0093580d7d73cdbbb205654ea79f606c95")
 	tPriv3 := tcrypto.PrivKeyTrue(*priv3)
 	addr3 := tPriv3.PubKey().Address()
 	id3 := hex.EncodeToString(addr3[:])
-	fmt.Println("id3",id3)
+	fmt.Println("id3", id3)
 
-	priv4,_ := crypto.HexToECDSA("c007a7302da54279edc472174a140b0093580d7d73cdbbb205654ea79f606c95")
+	priv4, _ := crypto.HexToECDSA("9177485bfecacf47d2f9f63a0c29cc0eae299c955283ce1fbb2060fee041c040")
 	tPriv4 := tcrypto.PrivKeyTrue(*priv4)
 	addr4 := tPriv4.PubKey().Address()
 	id4 := hex.EncodeToString(addr4[:])
-	fmt.Println("id4",id4)
+	fmt.Println("id4", id4)
 }
+
 func TestPutNodes(t *testing.T) {
-	//log.OpenLogDebug(3)
-	IdCacheInit()
+	a := make(map[int]string)
+
+	a[1] = "a"
+	a[2] = "b"
+
+	for k := range a {
+		fmt.Println(k)
+	}
+	return
+
+	IDCacheInit()
 	start := make(chan int)
-	pr1,_ := crypto.HexToECDSA("2ee9b9082e3eb19378d478f450e0e818e94cf7e3bf13ad5dd657ef2a35fbb0a8")
-	pr2,_ := crypto.HexToECDSA("1bc73ab677ed9c3518417339bb5716e32fbc56e888c98d2e63e190dd51ca7eda")
-	pr3,_ := crypto.HexToECDSA("d0c3b151031a8a90841dc18463d838cc8db29a10e7889b6991be0a3088702ca7")
-	pr4,_ := crypto.HexToECDSA("c007a7302da54279edc472174a140b0093580d7d73cdbbb205654ea79f606c95")
+	pr1, _ := crypto.HexToECDSA("2ee9b9082e3eb19378d478f450e0e818e94cf7e3bf13ad5dd657ef2a35fbb0a8")
+	pr2, _ := crypto.HexToECDSA("1bc73ab677ed9c3518417339bb5716e32fbc56e888c98d2e63e190dd51ca7eda")
+	pr3, _ := crypto.HexToECDSA("d0c3b151031a8a90841dc18463d838cc8db29a10e7889b6991be0a3088702ca7")
+	pr4, _ := crypto.HexToECDSA("c007a7302da54279edc472174a140b0093580d7d73cdbbb205654ea79f606c95")
 	agent1 := NewPbftAgent("Agent1")
 
 	config1 := new(config.TbftConfig)
@@ -1100,14 +1125,14 @@ func TestPutNodes(t *testing.T) {
 	m4.Publickey = GetPub(pr4)
 	m4.Coinbase = common.Address{0}
 
-	c1.Members = append(c1.Members, m1, m2,m3,m4)
+	c1.Members = append(c1.Members, m1, m2, m3, m4)
 	c1.StartHeight = common.Big1
 
 	cn := make([]*types.CommitteeNode, 0)
-	cn = append(cn, &types.CommitteeNode{IP: "39.98.44.213", Port: 30310,Port2: 30311, Coinbase: m1.Coinbase, Publickey: crypto.FromECDSAPub(m1.Publickey)})
-	cn = append(cn, &types.CommitteeNode{IP: "39.98.58.86", Port: 30310,Port2: 30311, Coinbase: m2.Coinbase, Publickey: crypto.FromECDSAPub(m2.Publickey)})
-	cn = append(cn, &types.CommitteeNode{IP: "39.98.56.108", Port: 30310,Port2: 30311, Coinbase: m3.Coinbase, Publickey: crypto.FromECDSAPub(m3.Publickey)})
-	cn = append(cn, &types.CommitteeNode{IP: "39.98.36.181", Port: 30310,Port2: 30311, Coinbase: m4.Coinbase, Publickey: crypto.FromECDSAPub(m4.Publickey)})
+	cn = append(cn, &types.CommitteeNode{IP: "39.98.44.213", Port: 30310, Port2: 30311, Coinbase: m1.Coinbase, Publickey: crypto.FromECDSAPub(m1.Publickey)})
+	cn = append(cn, &types.CommitteeNode{IP: "39.98.58.86", Port: 30310, Port2: 30311, Coinbase: m2.Coinbase, Publickey: crypto.FromECDSAPub(m2.Publickey)})
+	cn = append(cn, &types.CommitteeNode{IP: "39.98.56.108", Port: 30310, Port2: 30311, Coinbase: m3.Coinbase, Publickey: crypto.FromECDSAPub(m3.Publickey)})
+	cn = append(cn, &types.CommitteeNode{IP: "39.98.36.181", Port: 30310, Port2: 30311, Coinbase: m4.Coinbase, Publickey: crypto.FromECDSAPub(m4.Publickey)})
 
 	n1.PutCommittee(c1)
 	n1.PutNodes(common.Big1, cn)

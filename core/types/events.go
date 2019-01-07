@@ -24,12 +24,13 @@ import (
 // NewTxsEvent is posted when a batch of transactions enter the transaction pool.
 type NewTxsEvent struct{ Txs []*Transaction }
 
-//for fruit and record
+//NewFruitsEvent is posted when a fruit has been imported.
 type NewFruitsEvent struct{ Fruits []*SnailBlock }
 
-// NewMinedFruitEvent is posted when a block has been imported.
+// NewMinedFruitEvent is posted when a block has been Mined.
 type NewMinedFruitEvent struct{ Block *SnailBlock }
 
+// NewFastBlocksEvent is posted when a block has been imported.
 type NewFastBlocksEvent struct{ FastBlocks []*Block }
 
 // PendingLogsEvent is posted pre mining and notifies of pending logs.
@@ -60,13 +61,14 @@ type ChainSnailEvent struct {
 	Hash  common.Hash
 }
 
+// ChainSnailSideEvent is posted when a block in SideStatTy
 type ChainSnailSideEvent struct {
 	Block *SnailBlock
 }
 
 type ChainSnailHeadEvent struct{ Block *SnailBlock }
 
-// for fruit event
+// FruitEvent for fruit event,seems not used
 type FruitEvent struct {
 	Block *Block
 	Hash  common.Hash
@@ -77,6 +79,7 @@ type ElectionEvent struct {
 	Option           uint
 	CommitteeID      *big.Int
 	CommitteeMembers []*CommitteeMember
+	BackupMembers    []*CommitteeMember
 	BeginFastNumber  *big.Int
 	EndFastNumber    *big.Int
 }

@@ -3,54 +3,60 @@ package tbft
 import (
 	"crypto/ecdsa"
 	"encoding/hex"
+	"strconv"
 	"strings"
 	"sync"
 	// "encoding/json"
 	"errors"
 	"fmt"
-	tcrypto "github.com/truechain/truechain-engineering-code/consensus/tbft/crypto"
-	"github.com/truechain/truechain-engineering-code/consensus/tbft/help"
-	"github.com/truechain/truechain-engineering-code/consensus/tbft/p2p"
-	"github.com/truechain/truechain-engineering-code/consensus/tbft/p2p/pex"
-	ttypes "github.com/truechain/truechain-engineering-code/consensus/tbft/types"
-	"github.com/truechain/truechain-engineering-code/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
+	tcrypto "github.com/truechain/truechain-engineering-code/consensus/tbft/crypto"
+	"github.com/truechain/truechain-engineering-code/consensus/tbft/help"
+	"github.com/truechain/truechain-engineering-code/consensus/tbft/tp2p"
+	"github.com/truechain/truechain-engineering-code/consensus/tbft/tp2p/pex"
+	ttypes "github.com/truechain/truechain-engineering-code/consensus/tbft/types"
+	"github.com/truechain/truechain-engineering-code/core/types"
 	cfg "github.com/truechain/truechain-engineering-code/params"
 	"math/big"
 )
 
 type service struct {
-	sw               *p2p.Switch
+	sw               *tp2p.Switch
 	consensusState   *ConsensusState   // latest consensus state
 	consensusReactor *ConsensusReactor // for participating in the consensus
 	sa               *ttypes.StateAgentImpl
-	nodeTable        map[p2p.ID]*nodeInfo
+	nodeTable        map[tp2p.ID]*nodeInfo
 	lock             *sync.Mutex
 	updateChan       chan bool
 	eventBus         *ttypes.EventBus // pub/sub for services
-	// network
-	addrBook pex.AddrBook // known peers
+	addrBook         pex.AddrBook     // known peers
+	healthMgr        *ttypes.HealthMgr
+	selfID           tp2p.ID
 }
 
 type nodeInfo struct {
-	ID      p2p.ID
-	Adrress *p2p.NetAddress
+	ID      tp2p.ID
+	Adrress *tp2p.NetAddress
 	IP      string
 	Port    uint
 	Enable  bool
+	Flag    int32
 }
 
 const (
+	//Start is status for notify
 	Start int = iota
+	//Stop is status for notify
 	Stop
+	//Switch is status for notify
 	Switch
 )
 
-func NewNodeService(p2pcfg *cfg.P2PConfig, cscfg *cfg.ConsensusConfig, state ttypes.StateAgent,
-	store *ttypes.BlockStore) *service {
+func newNodeService(p2pcfg *cfg.P2PConfig, cscfg *cfg.ConsensusConfig, state *ttypes.StateAgentImpl,
+	store *ttypes.BlockStore, cid uint64) *service {
 	return &service{
-		sw:             p2p.NewSwitch(p2pcfg),
+		sw:             tp2p.NewSwitch(p2pcfg, state),
 		consensusState: NewConsensusState(cscfg, state, store),
 		// nodeTable:      make(map[p2p.ID]*nodeInfo),
 		lock:       new(sync.Mutex),
@@ -58,11 +64,20 @@ func NewNodeService(p2pcfg *cfg.P2PConfig, cscfg *cfg.ConsensusConfig, state tty
 		eventBus:   ttypes.NewEventBus(),
 		// If PEX is on, it should handle dialing the seeds. Otherwise the switch does it.
 		// Note we currently use the addrBook regardless at least for AddOurAddress
-		addrBook: pex.NewAddrBook(p2pcfg.AddrBookFile(), p2pcfg.AddrBookStrict),
+		addrBook:  pex.NewAddrBook(p2pcfg.AddrBookFile(), p2pcfg.AddrBookStrict),
+		healthMgr: ttypes.NewHealthMgr(cid),
 	}
 }
 
-func (s *service) setNodes(nodes map[p2p.ID]*nodeInfo) {
+func (s *service) nodesHaveSelf() bool {
+	if s.sa.Priv == nil {
+		return true
+	}
+	v, ok := s.nodeTable[s.selfID]
+	return ok && v.Flag == types.StateUsedFlag
+}
+
+func (s *service) setNodes(nodes map[tp2p.ID]*nodeInfo) {
 	s.nodeTable = nodes
 }
 func (s *service) start(cid *big.Int, node *Node) error {
@@ -77,7 +92,7 @@ func (s *service) start(cid *big.Int, node *Node) error {
 	}
 	nodeinfo := node.nodeinfo
 	_, lAddr := help.ProtocolAndAddress(lstr)
-	lAddrIP, lAddrPort := p2p.SplitHostPort(lAddr)
+	lAddrIP, lAddrPort := tp2p.SplitHostPort(lAddr)
 	nodeinfo.ListenAddr = fmt.Sprintf("%v:%v", lAddrIP, lAddrPort)
 	// Add ourselves to addrbook to prevent dialing ourselves
 	s.addrBook.AddOurAddress(nodeinfo.NetAddress())
@@ -87,7 +102,7 @@ func (s *service) start(cid *big.Int, node *Node) error {
 	s.sw.SetNodeInfo(nodeinfo)
 	s.sw.SetNodeKey(&node.nodekey)
 	log.Info("commitee start", "node info", nodeinfo.String())
-	l := p2p.NewDefaultListener(
+	l := tp2p.NewDefaultListener(
 		lstr,
 		node.config.P2P.ExternalAddress,
 		node.config.P2P.UPNP,
@@ -119,6 +134,7 @@ func (s *service) start(cid *big.Int, node *Node) error {
 func (s *service) stop() error {
 	if s.sw.IsRunning() {
 		s.updateChan <- false
+		s.healthMgr.OnStop()
 		s.eventBus.Stop()
 	}
 	s.sw.Stop()
@@ -140,45 +156,50 @@ func (s *service) putNodes(cid *big.Int, nodes []*types.CommitteeNode) {
 		nodeString[i] = node.String()
 		pub, err := crypto.UnmarshalPubkey(node.Publickey)
 		if err != nil {
-			log.Error("putnode:", err, node.IP, node.Port)
+			log.Error("putnode:", "err", err, "ip", node.IP, "port", node.Port)
 			continue
 		}
 		// check node pk
 		address := crypto.PubkeyToAddress(*pub)
-		if ok := s.sa.GetValidator().HasAddress(address[:]); !ok {
-			log.Error("has not address:", address, node.IP, node.Port)
-			continue
-		}
 		port := node.Port2
 		if cid.Uint64()%2 == 0 {
 			port = node.Port
 		}
-		id := p2p.ID(hex.EncodeToString(address[:]))
-		addr, err := p2p.NewNetAddressString(p2p.IDAddressString(id,
+		id := tp2p.ID(hex.EncodeToString(address[:]))
+		addr, err := tp2p.NewNetAddressString(tp2p.IDAddressString(id,
 			fmt.Sprintf("%v:%v", node.IP, port)))
-		if v, ok := s.nodeTable[id]; ok && v == nil {
+		if v, ok := s.nodeTable[id]; ok {
 			log.Info("Enter NodeInfo", "id", id, "addr", addr)
-			s.nodeTable[id] = &nodeInfo{
-				ID:      id,
-				Adrress: addr,
-				IP:      node.IP,
-				Port:    port,
-				Enable:  false,
-			}
+			v.Adrress, v.IP, v.Port = addr, node.IP, port
 			update = true
 		}
+		s.healthMgr.UpdataHealthInfo(id, node.IP, port, node.Publickey)
 	}
 	log.Debug("PutNodes", "id", cid, "msg", strings.Join(nodeString, "\n"))
-	if update {
+	if update && s.nodesHaveSelf() { //} ((s.sa.Priv != nil && s.consensusState.Validators.HasAddress(s.sa.Priv.GetAddress())) || s.sa.Priv == nil) {
 		go func() { s.updateChan <- true }()
 	}
 }
+
+//pkToP2pID pk to p2p id
+func pkToP2pID(pk *ecdsa.PublicKey) tp2p.ID {
+	publickey := crypto.FromECDSAPub(pk)
+	pub, err := crypto.UnmarshalPubkey(publickey)
+	if err != nil {
+		return ""
+	}
+	address := crypto.PubkeyToAddress(*pub)
+	return tp2p.ID(hex.EncodeToString(address[:]))
+}
+
 func (s *service) updateNodes() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	for _, v := range s.nodeTable {
-		if v != nil && !v.Enable {
-			s.connTo(v)
+		if v != nil {
+			if !v.Enable && v.Flag == types.StateUsedFlag && v.Adrress != nil {
+				s.connTo(v)
+			}
 		}
 	}
 }
@@ -213,8 +234,8 @@ type Node struct {
 
 	// services
 	services map[uint64]*service
-	nodekey  p2p.NodeKey
-	nodeinfo p2p.NodeInfo
+	nodekey  tp2p.NodeKey
+	nodeinfo tp2p.NodeInfo
 	chainID  string
 	lock     *sync.Mutex
 }
@@ -239,7 +260,7 @@ func NewNode(config *cfg.TbftConfig, chainID string, priv *ecdsa.PrivateKey,
 		Agent:    agent,
 		lock:     new(sync.Mutex),
 		services: make(map[uint64]*service),
-		nodekey: p2p.NodeKey{
+		nodekey: tp2p.NodeKey{
 			PrivKey: tcrypto.PrivKeyTrue(*priv),
 		},
 	}
@@ -275,8 +296,8 @@ func (n *Node) RunForever() {
 	//})
 }
 
-func (n *Node) makeNodeInfo() p2p.NodeInfo {
-	nodeInfo := p2p.NodeInfo{
+func (n *Node) makeNodeInfo() tp2p.NodeInfo {
+	nodeInfo := tp2p.NodeInfo{
 		ID:      n.nodekey.ID(),
 		Network: n.chainID,
 		Version: "0.1.0",
@@ -294,11 +315,12 @@ func (n *Node) makeNodeInfo() p2p.NodeInfo {
 	}
 	// Split protocol, address, and port.
 	_, lAddr := help.ProtocolAndAddress(n.config.P2P.ListenAddress1)
-	lAddrIP, lAddrPort := p2p.SplitHostPort(lAddr)
+	lAddrIP, lAddrPort := tp2p.SplitHostPort(lAddr)
 	nodeInfo.ListenAddr = fmt.Sprintf("%v:%v", lAddrIP, lAddrPort)
 	return nodeInfo
 }
 
+//Notify is agent change server order
 func (n *Node) Notify(id *big.Int, action int) error {
 	n.lock.Lock()
 	defer n.lock.Unlock()
@@ -313,14 +335,14 @@ func (n *Node) Notify(id *big.Int, action int) error {
 			server.start(id, n)
 			log.Info("End start committee", "id", id.Uint64(), "cur", server.consensusState.Height, "stop", server.sa.EndHeight)
 			return nil
-		} else {
-			return errors.New("wrong conmmitt ID:" + id.String())
 		}
+		return errors.New("wrong conmmitt ID:" + id.String())
+
 	case Stop:
 		if server, ok := n.services[id.Uint64()]; ok {
 			log.Info("Begin stop committee", "id", id.Uint64(), "cur", server.consensusState.Height)
 			server.stop()
-			delete(n.services, id.Uint64())
+			//delete(n.services, id.Uint64())
 			log.Info("End stop committee", "id", id.Uint64(), "cur", server.consensusState.Height)
 		}
 		return nil
@@ -330,11 +352,13 @@ func (n *Node) Notify(id *big.Int, action int) error {
 	}
 	return nil
 }
+
+//PutCommittee is agent put all committee to server
 func (n *Node) PutCommittee(committeeInfo *types.CommitteeInfo) error {
 	id := committeeInfo.Id
 	members := committeeInfo.Members
 	if id == nil || len(members) <= 0 {
-		return errors.New("wrong params...")
+		return errors.New("wrong params")
 	}
 	n.lock.Lock()
 	defer n.lock.Unlock()
@@ -350,25 +374,51 @@ func (n *Node) PutCommittee(committeeInfo *types.CommitteeInfo) error {
 		return errors.New("make the nil state")
 	}
 	store := ttypes.NewBlockStore()
-	service := NewNodeService(n.config.P2P, n.config.Consensus, state, store)
+	service := newNodeService(n.config.P2P, n.config.Consensus, state, store, cid)
+
+	for _, v := range committeeInfo.Members {
+		id := pkToP2pID(v.Publickey)
+		//exclude self
+		self := false
+		if n.nodekey.PubKey().Equals(tcrypto.PubKeyTrue(*v.Publickey)) {
+			self = true
+		}
+		val := ttypes.NewValidator(tcrypto.PubKeyTrue(*v.Publickey), 1)
+		health := ttypes.NewHealth(id, v.Flag, val, self)
+		service.healthMgr.PutWorkHealth(health)
+	}
+
+	for _, v := range committeeInfo.BackMembers {
+		id := pkToP2pID(v.Publickey)
+		val := ttypes.NewValidator(tcrypto.PubKeyTrue(*v.Publickey), 1)
+		health := ttypes.NewHealth(id, v.Flag, val, false)
+		service.healthMgr.PutBackHealth(health)
+	}
+
+	service.healthMgr.OnStart()
+	service.consensusState.SetHealthMgr(service.healthMgr)
 	nodeinfo := makeCommitteeMembers(id.Uint64(), service, committeeInfo)
 	if nodeinfo == nil {
 		service.stop()
 		return errors.New("make the nil CommitteeMembers")
 	}
+
 	service.setNodes(nodeinfo)
 	service.sa = state
 	service.consensusReactor = NewConsensusReactor(service.consensusState, false)
 	service.sw.AddReactor("CONSENSUS", service.consensusReactor)
 	service.sw.SetAddrBook(service.addrBook)
+	service.consensusReactor.SetHealthMgr(service.healthMgr)
 	service.consensusReactor.SetEventBus(service.eventBus)
-
+	service.selfID = n.nodekey.ID()
 	n.services[id.Uint64()] = service
 	return nil
 }
+
+//PutNodes is agent put peer's ip port
 func (n *Node) PutNodes(id *big.Int, nodes []*types.CommitteeNode) error {
 	if id == nil || len(nodes) <= 0 {
-		return errors.New("wrong params...")
+		return errors.New("wrong params")
 	}
 	n.lock.Lock()
 	defer n.lock.Unlock()
@@ -378,17 +428,66 @@ func (n *Node) PutNodes(id *big.Int, nodes []*types.CommitteeNode) error {
 		return errors.New("wrong ID:" + id.String())
 	}
 	server.putNodes(id, nodes)
+
 	return nil
 }
+
+// UpdateCommittee update the committee info from agent when the members was changed
+func (n *Node) UpdateCommittee(info *types.CommitteeInfo) error {
+	log.Info("UpdateCommittee", "info", info)
+	if service, ok := n.services[info.Id.Uint64()]; ok {
+		//update validator
+		stop, member, val := service.consensusState.UpdateValidatorSet(info)
+		log.Info("UpdateCommittee", "stop", stop, "member", member, "val", val)
+		service.consensusState.UpdateValidatorsSet(val, info.StartHeight.Uint64(), info.EndHeight.Uint64())
+
+		for _, v := range member {
+			pID := pkToP2pID(v.Publickey)
+			p := service.sw.GetPeerForID(string(pID))
+			if p != nil {
+				service.sw.StopPeerForError(p, nil)
+			}
+		}
+
+		//update node info
+		service.lock.Lock()
+		ni := makeCommitteeMembers(info.Id.Uint64(), service, info)
+		for k, v := range service.nodeTable {
+			if vn, ok := ni[k]; ok {
+				v.Flag = vn.Flag
+			}
+		}
+		service.lock.Unlock()
+
+		if stop {
+			service.stop()
+		}
+
+		//update nodes
+		//nodes := makeCommitteeMembersForUpdateCommittee(info)
+		//service.setNodes(nodes)
+		go func() { service.updateChan <- true }()
+		//update health
+		service.healthMgr.UpdateFromCommittee(info.Members, info.BackMembers)
+		return nil
+
+	}
+	return errors.New("service not found")
+}
+
+//MakeValidators is make CommitteeInfo to ValidatorSet
 func MakeValidators(cmm *types.CommitteeInfo) *ttypes.ValidatorSet {
 	id := cmm.Id
-	members := cmm.Members
+	members := append(cmm.Members, cmm.BackMembers...)
 	if id == nil || len(members) <= 0 {
 		return nil
 	}
 	vals := make([]*ttypes.Validator, 0, 0)
 	var power int64 = 1
 	for i, m := range members {
+		if m.Flag != types.StateUsedFlag {
+			continue
+		}
 		if i == 0 {
 			power = 1
 		} else {
@@ -399,56 +498,85 @@ func MakeValidators(cmm *types.CommitteeInfo) *ttypes.ValidatorSet {
 	}
 	return ttypes.NewValidatorSet(vals)
 }
-func makeCommitteeMembers(cid uint64, ss *service, cmm *types.CommitteeInfo) map[p2p.ID]*nodeInfo {
-	members := cmm.Members
+func makeCommitteeMembers(cid uint64, ss *service, cmm *types.CommitteeInfo) map[tp2p.ID]*nodeInfo {
+	members := append(cmm.Members, cmm.BackMembers...)
 	if ss == nil || len(members) <= 0 {
 		return nil
 	}
-	tab := make(map[p2p.ID]*nodeInfo)
+	tab := make(map[tp2p.ID]*nodeInfo)
 	for i, m := range members {
 		tt := tcrypto.PubKeyTrue(*m.Publickey)
 		address := tt.Address()
-		id := p2p.ID(hex.EncodeToString(address))
-		tab[id] = nil
+		id := tp2p.ID(hex.EncodeToString(address))
+		tab[id] = &nodeInfo{
+			ID:   id,
+			Flag: m.Flag,
+		}
 		log.Info("CommitteeMembers", "index", i, "id", id)
 	}
 	return tab
 }
-func (n *Node) SetCommitteeStop(committeeId *big.Int, stop uint64) error {
-	log.Info("SetCommitteeStop", "id", committeeId, "stop", stop)
+
+func makeCommitteeMembersForUpdateCommittee(cmm *types.CommitteeInfo) map[tp2p.ID]*nodeInfo {
+	members := cmm.Members
+	if cmm.BackMembers != nil {
+		members = append(members, cmm.BackMembers...)
+	}
+	tab := make(map[tp2p.ID]*nodeInfo)
+	for i, m := range members {
+		if m.Flag == types.StateUsedFlag {
+			tt := tcrypto.PubKeyTrue(*m.Publickey)
+			address := tt.Address()
+			id := tp2p.ID(hex.EncodeToString(address))
+			tab[id] = nil
+			log.Info("CommitteeMembers", "index", i, "id", id)
+		}
+	}
+	return tab
+}
+
+//SetCommitteeStop is stop committeeID server
+func (n *Node) SetCommitteeStop(committeeID *big.Int, stop uint64) error {
+	log.Info("SetCommitteeStop", "id", committeeID, "stop", stop)
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
-	if server, ok := n.services[committeeId.Uint64()]; ok {
+	if server, ok := n.services[committeeID.Uint64()]; ok {
 		server.getStateAgent().SetEndHeight(stop)
 		return nil
-	} else {
-		return errors.New("wrong conmmitt ID:" + committeeId.String())
 	}
+	return errors.New("wrong conmmitt ID:" + committeeID.String())
 }
 
 func getCommittee(n *Node, cid uint64) (info *service) {
+	n.lock.Lock()
+	defer n.lock.Unlock()
 	if server, ok := n.services[cid]; ok {
 		return server
 	}
 	return nil
 }
 
-func getNodeStatus(s *Node, parent bool) map[string]interface{} {
-	return nil
+func getNodeStatus(s *service) map[string]interface{} {
+	result := make(map[string]interface{})
+	result[strconv.Itoa(int(s.consensusState.Height))] = s.consensusState.GetRoundState().Votes
+	return result
 }
 
+//GetCommitteeStatus is show committee info in api
 func (n *Node) GetCommitteeStatus(committeeID *big.Int) map[string]interface{} {
+	log.Info("GetCommitteeStatus", "committeeID", committeeID.Uint64())
 	result := make(map[string]interface{})
 	s := getCommittee(n, committeeID.Uint64())
 	if s != nil {
 		committee := make(map[string]interface{})
 		committee["id"] = committeeID.Uint64()
 		committee["nodes"] = s.nodeTable
+		committee["nodes_cnt"] = len(s.nodeTable)
 		result["committee_now"] = committee
-
-		result["nodeStatus"] = getNodeStatus(n, false)
-		result["nodeParent"] = getNodeStatus(n, true)
+		result["nodeStatus"] = getNodeStatus(s)
+	} else {
+		log.Info("GetCommitteeStatus", "error", "server not have")
 	}
 
 	s1 := getCommittee(n, committeeID.Uint64()+1)
@@ -458,5 +586,5 @@ func (n *Node) GetCommitteeStatus(committeeID *big.Int) map[string]interface{} {
 		committee["nodes"] = s1.nodeTable
 		result["committee_next"] = committee
 	}
-	return nil
+	return result
 }

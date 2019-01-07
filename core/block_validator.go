@@ -18,7 +18,6 @@ package core
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/truechain/truechain-engineering-code/consensus"
 	"github.com/truechain/truechain-engineering-code/core/state"
@@ -62,6 +61,26 @@ func (fv *BlockValidator) ValidateBody(block *types.Block, validateSign bool) er
 		}
 		return consensus.ErrPrunedAncestor
 	}
+	//validate reward snailBlock
+	if block.SnailNumber() != nil && block.SnailNumber().Uint64() != 0 {
+		snailNumber := block.SnailNumber().Uint64()
+		blockReward := fv.bc.GetFastHeightBySnailHeight(snailNumber)
+		if blockReward != nil {
+			if fv.bc.CurrentBlock().NumberU64() < snailNumber {
+				log.Error("validateRewardError", "snailNumber", snailNumber,
+					"currentNumber", fv.bc.CurrentBlock().NumberU64(), "err", ErrSnailBlockRewarded)
+				return ErrSnailBlockRewarded
+			}
+		} else {
+			currentRewardedNumber := fv.bc.NextSnailNumberReward()
+			if currentRewardedNumber.Uint64() != snailNumber {
+				log.Error("validateRewardError", "snailNumber", snailNumber,
+					"currentRewardedNumber", currentRewardedNumber, "err", ErrSnailBlockRewarded)
+				return ErrSnailNumberReward
+			}
+		}
+	}
+
 	// Header validity is known at this point, check the uncles and transactions
 	header := block.Header()
 	//if err := fv.engine.VerifyUncles(fv.bc, block); err != nil {
@@ -77,7 +96,7 @@ func (fv *BlockValidator) ValidateBody(block *types.Block, validateSign bool) er
 
 	if validateSign {
 		if err := fv.bc.engine.VerifySigns(block.Number(), block.Hash(), block.Signs()); err != nil {
-			log.Info("Fast VerifySigns Err", "number", block.NumberU64(), "sign number", block.Signs()[0].FastHeight, "signs[0]", hexutil.Bytes(block.Signs()[0].Sign), "signs[1]", hexutil.Bytes(block.Signs()[1].Sign), "signs[2]", hexutil.Bytes(block.Signs()[2].Sign))
+			log.Info("Fast VerifySigns Err", "number", block.NumberU64(), "signs", block.Signs())
 			return err
 		}
 	}

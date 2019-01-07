@@ -17,12 +17,16 @@
 package minerva
 
 import (
+	"bufio"
 	crand "crypto/rand"
+	"fmt"
 	"math"
 	"math/big"
 	"math/rand"
+	"os"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
@@ -245,7 +249,6 @@ search:
 					//TODO need add fruit flow
 					header.Fruit = false
 
-					log.Info("miner success", "epoch is:", block.Number().Uint64()/epochLength, "--digest is:", header.MixDigest)
 					// Seal and return a block (if still needed)
 					select {
 					case found <- block.WithSeal(header):
@@ -299,59 +302,67 @@ func (m *Minerva) truehashTableInit(tableLookup []uint64) {
 	genLookupTable(tableLookup[:], table[:])
 }
 
-func (m *Minerva) updateLookupTBL(blockNum uint64, plookupTbl []uint64) (bool, []uint64) {
-	log.Info("updateupTBL start ，", "blockNum is:	", blockNum)
+func (m *Minerva) updateLookupTBL(epoch uint64, plookupTbl []uint64) (bool, []uint64, string) {
 	const offsetCnst = 0x1f
 	const skipCnst = 0x3
 	var offset [OFF_SKIP_LEN]int
 	var skip [OFF_SKIP_LEN]int
+	var cont string
 
-	cur_block_num := blockNum
+	log.Info("updateupTBL start ，", "epoch is:	", epoch)
+	if epoch <= 0 {
+		log.Error("----The value is less than the reservation value---- ", "epoch is:  ", epoch)
+		return false, nil, ""
+	}
 
-	res := cur_block_num % UPDATABLOCKLENGTH
 	sblockchain := m.sbc
-	//current block number is invaild
-
 	if sblockchain == nil {
-		log.Error("sblockchain is nil  ", "blockNum is:  ", blockNum)
-		return false, nil
+		log.Error("sblockchain is nil  ", "epoch is:  ", epoch)
+		return false, nil, ""
 	}
-	//res <= STARTUPDATENUM
-	if res <= STARTUPDATENUM {
-		log.Error("----The value is less than the reservation value---- ", "blockNum is:  ", blockNum)
-		return false, nil
-	}
-	var st_block_num uint64 = uint64(cur_block_num - res)
 
+	// if epoch =1 start 1-8192 -8293-10240
+	// if epoch =2 start 12001-20192 -20193-22240
+	// each epoch need start to 1 to 10240
+	st_block_num := uint64((epoch-1)*UPDATABLOCKLENGTH + 1)
+	log.Info("------st_block_num ", "is ", st_block_num)
+
+	//get offset cnst  8192 lenght
 	for i := 0; i < OFF_CYCLE_LEN; i++ {
 
-		header := sblockchain.GetHeaderByNumber(uint64(i) + st_block_num + 1)
+		header := sblockchain.GetHeaderByNumber(uint64(i) + st_block_num)
 		if header == nil {
-			log.Error("----updateTBL--The offset is nil---- ", "blockNum is:  ", blockNum)
-			return false, nil
+			log.Error("----updateTBL--The offset is nil---- ", "blockNum is:  ", (uint64(i) + st_block_num))
+			return false, nil, ""
 		}
 		val := header.Hash().Bytes()
 		offset[i*4] = (int(val[0]) & offsetCnst) - 16
 		offset[i*4+1] = (int(val[1]) & offsetCnst) - 16
 		offset[i*4+2] = (int(val[2]) & offsetCnst) - 16
 		offset[i*4+3] = (int(val[3]) & offsetCnst) - 16
+		cont += header.Hash().String()
 	}
 
+	//get skip cnst 2048 lenght
 	for i := 0; i < SKIP_CYCLE_LEN; i++ {
-		header := sblockchain.GetHeaderByNumber(uint64(i) + st_block_num + uint64(OFF_CYCLE_LEN) + 1)
+		header := sblockchain.GetHeaderByNumber(uint64(i) + st_block_num + uint64(OFF_CYCLE_LEN))
 		if header == nil {
-			log.Error("----updateTBL--The skip is nil---- ", "blockNum is:  ", blockNum)
-			return false, nil
+			log.Error("----updateTBL--The skip is nil---- ", "blockNum is:  ", (uint64(i) + st_block_num))
+			return false, nil, ""
 		}
 		val := header.Hash().Bytes()
 		for k := 0; k < 16; k++ {
 			skip[i*16+k] = (int(val[k]) & skipCnst) + 1
 		}
+		cont += header.Hash().String()
 	}
 
 	ds := m.UpdateTBL(offset, skip, plookupTbl)
 
-	return true, ds
+	// verify table, will remove
+	WriteTBL(offset, skip)
+
+	return true, ds, cont
 }
 
 //UpdateTBL Update dataset information
@@ -368,9 +379,8 @@ func (m *Minerva) UpdateTBL(offset [OFF_SKIP_LEN]int, skip [OFF_SKIP_LEN]int, pl
 			idx := k*DATALENGTH + x
 			pos := offset[idx] + x
 			sk := skip[idx]
-			pos0 := pos - sk*PMTSIZE
-			pos1 := pos + sk*PMTSIZE
-			for y := pos0; y < pos1; y += sk {
+			y := pos - sk*PMTSIZE/2
+			for i := 0; i < PMTSIZE; i++ {
 				if y >= 0 && y < SKIP_CYCLE_LEN {
 					vI := uint32(y / 64)
 					vR := uint32(y % 64)
@@ -381,4 +391,50 @@ func (m *Minerva) UpdateTBL(offset [OFF_SKIP_LEN]int, skip [OFF_SKIP_LEN]int, pl
 		}
 	}
 	return plookupTbl
+}
+
+// WriteTBL Save Update dataset information
+func WriteTBL(offset [OFF_SKIP_LEN]int, skip [OFF_SKIP_LEN]int) {
+
+	// Create a file and use bufio.NewWriter.
+	log.Info("write TBL ")
+	currentTime := time.Now()
+	filename := fmt.Sprintf("tbl%s.dat", currentTime.Format("2000.01.01"))
+	fmt.Println(filename)
+	f, _ := os.Create(filename)
+	w := bufio.NewWriter(f)
+
+	lktWz := uint32(4)
+	lktSz := uint32(DATALENGTH) * lktWz
+	fmt.Fprintf(w, "{\n")
+	for k := 0; k < TBLSIZE; k++ {
+
+		fmt.Fprintf(w, "\t{\n")
+		plkt := uint32(k) * lktSz
+
+		for x := 0; x < DATALENGTH; x++ {
+			idx := k*DATALENGTH + x
+			pos := offset[idx] + x
+			sk := skip[idx]
+			y := pos - sk*PMTSIZE/2
+			if x%64 == 0 {
+				fmt.Fprintf(w, "\n\t\t")
+
+			}
+			for i := 0; i < PMTSIZE; i++ {
+				if y >= 0 && y < SKIP_CYCLE_LEN {
+					fmt.Fprintf(w, "0x%03x,\t", y)
+				} else {
+					fmt.Fprintf(w, "0xfff,\t")
+				}
+				y += sk
+			}
+
+			plkt += lktWz
+		}
+		fmt.Fprintf(w, "\n\t}\n")
+	}
+	fmt.Fprintf(w, "}\n")
+	fmt.Fprintf(w, "\n")
+	w.Flush()
 }

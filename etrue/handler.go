@@ -475,7 +475,6 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 
 	case msg.Code == GetSnailBlockHeadersMsg:
 
-		log.Debug("GetSnailBlockHeadersMsg>>>>>>>>>>>>", "peer>>>", p.id)
 		// Decode the complex header query
 		var query getBlockHeadersData
 		if err := msg.Decode(&query); err != nil {
@@ -491,6 +490,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			headers []*types.SnailHeader
 			unknown bool
 		)
+		log.Debug("GetSnailBlockHeadersMsg", "number", query.Origin.Number, "hash", query.Origin.Hash, "peer", p.id)
 		for !unknown && len(headers) < int(query.Amount) && bytes < softResponseLimit && len(headers) < downloader.MaxHeaderFetch {
 			// Retrieve the next header satisfying the query
 			var origin *types.SnailHeader
@@ -560,7 +560,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				query.Origin.Number += query.Skip + 1
 			}
 		}
-		log.Debug(" p.SendSnailBlockHeaders() ", "headers", len(headers))
+		log.Debug("Handle send snail block headers", "headers", len(headers), "time", time.Now().Sub(now), "peer", p.id)
 		return p.SendSnailBlockHeaders(headers)
 
 	case msg.Code == SnailBlockHeadersMsg:
@@ -579,7 +579,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 
 	case msg.Code == GetFastBlockHeadersMsg:
 
-		log.Debug("GetFastBlockHeadersMsg>>>>>>>>>>>>")
+		log.Debug("GetFastBlockHeadersMsg>>>>>>>>>>>>", "peer", p.id)
 		// Decode the complex header query
 		var query getBlockHeadersData
 		if err := msg.Decode(&query); err != nil {
@@ -612,7 +612,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				origin = pm.blockchain.GetHeaderByNumber(query.Origin.Number)
 			}
 			if origin == nil {
-				log.Error("GetFastBlockHeadersMsg", "hash", query.Origin.Hash, "peer", p.id)
+				log.Error("GetFastBlockHeadersMsg", "hash", query.Origin.Hash, "num", query.Origin.Number, "CurrentNumber", pm.blockchain.CurrentHeader().Number.Uint64(), "peer", p.id)
 				break
 			}
 			headers = append(headers, origin)
@@ -665,12 +665,12 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				query.Origin.Number += query.Skip + 1
 			}
 		}
-		log.Debug(">>>>p.SendFastBlockHeaders", "headers:", len(headers))
+		log.Debug("Handle send fast block headers", "headers:", len(headers), "time", time.Now().Sub(now), "peer", p.id)
 		return p.SendFastBlockHeaders(headers)
 
 	case msg.Code == GetFastOneBlockHeadersMsg:
 
-		log.Debug("GetFastOneBlockHeadersMsg>>>>>>>>>>>>")
+		log.Debug("GetFastOneBlockHeadersMsg>>>>>>>>>>>>", "peer", p.id)
 		// Decode the complex header query
 		// Gather headers until the fetch or network limits is reached
 		var (
@@ -679,8 +679,8 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 
 		fheader := pm.blockchain.CurrentBlock().Header()
 		headers = append(headers, fheader)
-		log.Debug(">>>>p.GetFastOneBlockHeadersMsg", "headers:", len(headers))
 
+		log.Debug("Handle get fast block headers", "headers:", len(headers), "time", time.Now().Sub(now), "peer", p.id)
 		return p.SendOneFastBlockHeader(headers)
 
 	case msg.Code == FastBlockHeadersMsg:
@@ -727,7 +727,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		log.Debug("FastBlockHeadersMsg>>>>>>>>>>>>", "headers:", len(headers))
 
 	case msg.Code == GetFastBlockBodiesMsg:
-		log.Debug("GetFastBlockBodiesMsg>>>>>>>>>>>>")
+		log.Debug("GetFastBlockBodiesMsg>>>>>>>>>>>>", "peer", p.id)
 		// Decode the retrieval message
 		msgStream := rlp.NewStream(msg.Payload, uint64(msg.Size))
 		if _, err := msgStream.List(); err != nil {
@@ -753,7 +753,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			}
 		}
 
-		log.Debug(">>>>p.SendFastBlockBodiesRLP", "bodies", len(bodies))
+		log.Debug("Handle send fast block bodies rlp", "bodies", len(bodies), "time", time.Now().Sub(now), "peer", p.id)
 		return p.SendFastBlockBodiesRLP(bodies)
 
 	case msg.Code == FastBlockBodiesMsg:
@@ -765,30 +765,32 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		// Deliver them all to the downloader for queuing
 		transactions := make([][]*types.Transaction, len(request))
 		signs := make([][]*types.PbftSign, len(request))
+		infos := make([]*types.SwitchInfos, len(request))
 
 		for i, body := range request {
 			transactions[i] = body.Transactions
 			signs[i] = body.Signs
+			infos[i] = body.Infos
 		}
 		// Filter out any explicitly requested bodies, deliver the rest to the downloader
-		filter := len(transactions) > 0 || len(signs) > 0
+		filter := len(transactions) > 0 || len(signs) > 0 || len(infos) > 0
 		if len(signs) > 0 {
 			log.Debug("FastBlockBodiesMsg", "len(signs)", len(signs), "number", signs[0][0].FastHeight, "len(transactions)", len(transactions))
 		}
 		if filter {
-			transactions, signs = pm.fetcherFast.FilterBodies(p.id, transactions, signs, time.Now())
+			transactions, signs, infos = pm.fetcherFast.FilterBodies(p.id, transactions, signs, infos, time.Now())
 		}
 		// mecMark
-		if len(transactions) > 0 || len(signs) > 0 || !filter {
-			log.Debug("FastBlockBodiesMsg", "len(transactions)", len(transactions), "len(signs)", len(signs), "filter", filter)
-			err := pm.fdownloader.DeliverBodies(p.id, transactions, signs)
+		if len(transactions) > 0 || len(signs) > 0 || len(infos) > 0 || !filter {
+			log.Debug("FastBlockBodiesMsg", "len(transactions)", len(transactions), "len(signs)", len(signs),"len(infos)", len(infos), "filter", filter)
+			err := pm.fdownloader.DeliverBodies(p.id, transactions, signs, infos)
 			if err != nil {
 				log.Debug("Failed to deliver bodies", "err", err)
 			}
 		}
 
 	case msg.Code == GetSnailBlockBodiesMsg:
-		log.Debug("GetSnailBlockBodiesMsg>>>>>>>>>>>>")
+		log.Debug("GetSnailBlockBodiesMsg>>>>>>>>>>>>", "peer", p.id)
 		// Decode the retrieval message
 		msgStream := rlp.NewStream(msg.Payload, uint64(msg.Size))
 		if _, err := msgStream.List(); err != nil {
@@ -813,7 +815,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				bytes += len(data)
 			}
 		}
-		log.Debug(">>>>>>p.SendSnailBlockBodiesRLP()", "bodies", len(bodies))
+		log.Debug("Handle send snail block bodies rlp", "bodies", len(bodies), "time", time.Now().Sub(now), "peer", p.id)
 		return p.SendSnailBlockBodiesRLP(bodies)
 
 	case msg.Code == SnailBlockBodiesMsg:
@@ -862,6 +864,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				bytes += len(entry)
 			}
 		}
+		log.Debug("Handle send node data", "time", time.Now().Sub(now))
 		return p.SendNodeData(data)
 
 	case p.version >= eth63 && msg.Code == NodeDataMsg:
@@ -909,6 +912,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 				bytes += len(encoded)
 			}
 		}
+		log.Debug("Handle send receipts rlp", "time", time.Now().Sub(now))
 		return p.SendReceiptsRLP(receipts)
 
 	case p.version >= eth63 && msg.Code == ReceiptsMsg:

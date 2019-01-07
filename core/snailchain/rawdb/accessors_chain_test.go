@@ -22,10 +22,10 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/truechain/truechain-engineering-code/core/types"
 	"github.com/ethereum/go-ethereum/crypto/sha3"
-	"github.com/truechain/truechain-engineering-code/ethdb"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/truechain/truechain-engineering-code/core/types"
+	"github.com/truechain/truechain-engineering-code/ethdb"
 )
 
 // Tests block header storage and retrieval operations.
@@ -68,7 +68,7 @@ func TestBodyStorage(t *testing.T) {
 	// Create a test body to move around the database and make sure it's really new
 	//body := &types.SnailBody{Fruits: []*types.Header{{Extra: []byte("test header")}}}
 	snailHeader := types.SnailHeader{Extra: []byte("test header")}
-	snailBlock := types.NewSnailBlock(&snailHeader, []*types.SnailBlock{}, []*types.PbftSign{},  []*types.SnailHeader{})
+	snailBlock := types.NewSnailBlock(&snailHeader, []*types.SnailBlock{}, []*types.PbftSign{}, []*types.SnailHeader{})
 	body := &types.SnailBody{Fruits: []*types.SnailBlock{snailBlock}, Signs: nil}
 
 	hasher := sha3.NewKeccak256()
@@ -142,15 +142,14 @@ func TestBlockStorage(t *testing.T) {
 		t.Fatalf("Deleted body returned: %v", entry)
 	}
 }
+
 //
 // Tests that partial block contents don't get reassembled into full blocks.
 func TestPartialBlockStorage(t *testing.T) {
 	db := ethdb.NewMemDatabase()
 	block := types.NewSnailBlockWithHeader(&types.SnailHeader{
-		Extra:       []byte("test block"),
-		UncleHash:   types.EmptyUncleHash,
-		TxHash:      types.EmptyRootHash,
-		ReceiptHash: types.EmptyRootHash,
+		Extra:     []byte("test block"),
+		UncleHash: types.EmptyUncleHash,
 	})
 	// Store a header and check that it's not recognized as a block
 	WriteHeader(db, block.Header())
@@ -309,5 +308,33 @@ func TestBlockReceiptStorage(t *testing.T) {
 	DeleteReceipts(db, hash, 0)
 	if rs := ReadReceipts(db, hash, 0); len(rs) != 0 {
 		t.Fatalf("deleted receipts returned: %v", rs)
+	}
+}
+
+func TestCommitteeStates(t *testing.T) {
+	db := ethdb.NewMemDatabase()
+	states := []uint64{10, 12, 14}
+	updated := []uint64{10, 12, 14, 20, 30}
+
+	WriteCommitteeStates(db, 0, states)
+	nums := ReadCommitteeStates(db, 0)
+	if len(nums) != len(states) {
+		t.Fatalf("Read Committee states invalid: %v", nums)
+	}
+	for i := range nums {
+		if nums[i] != states[i] {
+			t.Fatalf("Read Committee states error at %v", i)
+		}
+	}
+
+	WriteCommitteeStates(db, 0, updated)
+	nums = ReadCommitteeStates(db, 0)
+	if len(nums) != len(updated) {
+		t.Fatalf("Read Committee states invalid: %v", nums)
+	}
+	for i := range nums {
+		if nums[i] != updated[i] {
+			t.Fatalf("Read Committee states error at %v", i)
+		}
 	}
 }

@@ -275,7 +275,7 @@ func (g *Genesis) ToFastBlock(db ethdb.Database) *types.Block {
 	statedb.Commit(false)
 	statedb.Database().TrieDB().Commit(root, true)
 
-	return types.NewBlock(head, nil, nil, nil)
+	return types.NewBlock(head, nil, nil, nil, nil)
 }
 
 // MustCommit writes the genesis block and state to db, panicking on error.
@@ -395,7 +395,7 @@ func (g *Genesis) CommitSnail(db ethdb.Database) (*types.SnailBlock, error) {
 	snaildb.WriteHeadBlockHash(db, block.Hash())
 	snaildb.WriteHeadHeaderHash(db, block.Hash())
 	// Write genesis election committeee
-	snaildb.WriteCommittee(db, block.NumberU64(), g.Committee)
+	snaildb.WriteCommittee(db, block.NumberU64(), &types.ElectionCommittee{Members: g.Committee})
 
 	// config := g.Config
 	// if config == nil {
@@ -418,10 +418,10 @@ func (g *Genesis) MustSnailCommit(db ethdb.Database) *types.SnailBlock {
 // DefaultGenesisBlock returns the Truechain main net snail block.
 func DefaultGenesisBlock() *Genesis {
 	i, _ := new(big.Int).SetString("90000000000000000000000", 10)
-	key1, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x04a3e174523b1054e14f123580bce258745e65591c2a4ee44764e55eb87a3782c9920d306e6121d4f10f8726800497ad9ca5a0bfdfe0832779dbaf7b95b3bf0111"))
-	key2, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x04f67ab0cd48f626da89c718bcd909a04dea393d632d3191891539ef2f5ff6bb1e5d340ebe94cb6d9126b26e1ec64bb4783e9e8ddf31346b53d651d15eb226142e"))
-	key3, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x04b82f569c74364daf1767b251608950ac49c83256f5dcde771255919c8c8489da550a5c24dcfc8a735b335dff5715ca424672c81bb10e5a55ddac5204f38ab94c"))
-	key4, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x0490bc06f4e4e5af179ea599b0793282070b9abd023a283cdda9b4edf3e596996f32843d37dcb1c3ee3dfebfe05d03dc13cfa19abe7b88a259619ea233d63778f8"))
+	key1, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x044af9a092489fdb309e05032699d0647b80794c6c5e9edab77bad4408e281526e809e7ff913a4d5f41d798f6b18ec41c8a33ae6f5016c5ecc8c4fe8e52b9fe94a"))
+	key2, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x0427572d5f27be1066e1d840f2ea395ea08e8ca82de2638a2085ba9eae96a1e48f7317d41294dfa6f85068de8eabe337a7d5450c058e1ffa1414e73dc2b83358c1"))
+	key3, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x040d153624462927444a8212717e4ad41ec5f5739bc36598d093d114729e1dc782d55d322699705829cf9d69f201009db797ebe8ba952f10a26fe36c64356b111b"))
+	key4, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x04a3474c26578fce00d241119758271f6a208cc987c6f37d1518dcea2a51257bafeebd93202ae499cb5a8986720d4b63a04043aadb4d03430194a81860c9ca0763"))
 
 	return &Genesis{
 		Config:     params.MainnetChainConfig,
@@ -520,13 +520,15 @@ func DeveloperGenesisBlock(period uint64, faucet common.Address) *Genesis {
 
 // DefaultDevGenesisBlock returns the Rinkeby network genesis block.
 func DefaultDevGenesisBlock() *Genesis {
-	return DefaultGenesisBlock()
-	/*i, _ := new(big.Int).SetString("90000000000000000000000", 10)
-	key1, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x04044308742b61976de7344edb8662d6d10be1c477dd46e8e4c433c1288442a79183480894107299ff7b0706490f1fb9c9b7c9e62ae62d57bd84a1e469460d8ac1"))
+	i, _ := new(big.Int).SetString("90000000000000000000000", 10)
+	key1, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x044b5d1cc3da303e860914a6f526b59aeccf76d28c57f37704df2dee5a9c0fa3e5f1d888e592ec8d1f3baca404b34e16d5612841e31a0240231d57381da3538531"))
+	key2, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x0471239944700e6fffb58033e4f508f484c712c960d403e9b87269542c06e016bc1b4110af6333bcfbe52c7aa04ae7269ca254d3ccc7363b98ea3996f0a9f77ef0"))
+	key3, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x04fc61bee6ee46231843e6f41d6460fb5961cb941bd902e8c1bfe85d91e31f708b5e03da57f51c2c972324c155085267aa306bb7b4e25ddc9d7ce399905a44da31"))
+	key4, _ := crypto.UnmarshalPubkey(hexutil.MustDecode("0x044aa7cef6d282ec22e0ef6d55d36b17d607afee920668320430717552cd7d4905e07d92a0e939f96ef6d617174a136267ed6a4efcc14879abe6aa097965fb4740"))
 
 	return &Genesis{
 		Config:     params.DevnetChainConfig,
-		Nonce:      0,
+		Nonce:      928,
 		ExtraData:  nil,
 		GasLimit:   88080384,
 		Difficulty: big.NewInt(20000),
@@ -534,13 +536,22 @@ func DefaultDevGenesisBlock() *Genesis {
 		Alloc: map[common.Address]types.GenesisAccount{
 			common.HexToAddress("0x7c357530174275dd30e46319b89f71186256e4f7"): {Balance: i},
 			common.HexToAddress("0x4cf807958b9f6d9fd9331397d7a89a079ef43288"): {Balance: i},
-			common.HexToAddress("0xbe7e39fa0645f6eaf501ad02318a7fda5c4df6c6"): {Balance: i},
-			common.HexToAddress("0xB824adf0Bad5E49bB214922F4499bD2cf08ef519"): {Balance: i},
+			common.HexToAddress("0x04d2252a3e0ca7c2aa81247ca33060855a34a808"): {Balance: i},
+			common.HexToAddress("0x05712ff78d08eaf3e0f1797aaf4421d9b24f8679"): {Balance: i},
+			common.HexToAddress("0x764727f61dd0717a48236842435e9aefab6723c3"): {Balance: i},
+			common.HexToAddress("0x764986534dba541d5061e04b9c561abe3f671178"): {Balance: i},
+			common.HexToAddress("0x0fd0bbff2e5b3ddb4f030ff35eb0fe06658646cf"): {Balance: i},
+			common.HexToAddress("0x40b3a743ba285a20eaeee770d37c093276166568"): {Balance: i},
+			common.HexToAddress("0x9d3c4a33d3bcbd2245a1bebd8e989b696e561eae"): {Balance: i},
+			common.HexToAddress("0x35c9d83c3de709bbd2cb4a8a42b89e0317abe6d4"): {Balance: i},
 		},
 		Committee: []*types.CommitteeMember{
 			&types.CommitteeMember{Coinbase: common.HexToAddress("0x76ea2f3a002431fede1141b660dbb75c26ba6d97"), Publickey: key1},
+			&types.CommitteeMember{Coinbase: common.HexToAddress("0x831151b7eb8e650dc442cd623fbc6ae20279df85"), Publickey: key2},
+			&types.CommitteeMember{Coinbase: common.HexToAddress("0x1074f7deccf8c66efcd0106e034d3356b7db3f2c"), Publickey: key3},
+			&types.CommitteeMember{Coinbase: common.HexToAddress("0xd985e9871d1be109af5a7f6407b1d6b686901fff"), Publickey: key4},
 		},
-	}*/
+	}
 }
 
 // DefaultTestnetGenesisBlock returns the Ropsten network genesis block.
