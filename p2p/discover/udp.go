@@ -42,7 +42,7 @@ var (
 	errTimeout          = errors.New("RPC timeout")
 	errClockWarp        = errors.New("reply deadline too far in the future")
 	errClosed           = errors.New("socket closed")
-	errVersion          = errors.New("version")
+	errVersion          = errors.New("error version number")
 )
 
 // Timeouts
