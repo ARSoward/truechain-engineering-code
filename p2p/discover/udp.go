@@ -53,6 +53,7 @@ const (
 	ntpFailureThreshold = 32               // Continuous timeouts after which to check NTP
 	ntpWarningCooldown  = 10 * time.Minute // Minimum amount of time to pass before repeating NTP warning
 	driftThreshold      = 10 * time.Second // Allowed clock drift before warning user
+	trueVersion         = 5
 )
 
 // RPC packet types
@@ -278,7 +279,7 @@ func (t *udp) ping(toid NodeID, toaddr *net.UDPAddr) error {
 // when the reply arrives.
 func (t *udp) sendPing(toid NodeID, toaddr *net.UDPAddr, callback func()) <-chan error {
 	req := &ping{
-		Version:    5,
+		Version:    trueVersion,
 		From:       t.ourEndpoint,
 		To:         makeEndpoint(toaddr, 0), // TODO: maybe use known TCP port from DB
 		Expiration: uint64(time.Now().Add(expiration).Unix()),
@@ -599,9 +600,8 @@ func (req *ping) handle(t *udp, from *net.UDPAddr, fromID NodeID, mac []byte) er
 	if expired(req.Expiration) {
 		return errExpired
 	}
-	log.Info("handle", "version", req.Version)
-	if req.Version != 5 {
-		return errVersion
+	if req.Version != trueVersion {
+		return fmt.Errorf("error %d version number", req.Version)
 	}
 	_, _ = t.send(from, pongPacket, &pong{
 		To:         makeEndpoint(from, req.From.TCP),
